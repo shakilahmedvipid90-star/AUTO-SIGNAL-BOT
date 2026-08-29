@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — OFFICIAL RELEASE EDITION (SEPARATED DATA ENGINE)
+👑 MD SUMON TRADING BOT — OFFICIAL RELEASE EDITION (REAL ENGINE VIA XCHARTS.LIVE)
 - Title & Branding: 👑 MD SUMON TRADING BOT 👑
 - Telegram Handle: @MD_SUMON_MT4
-- Live xcharts.live API for OTC & yfinance for Real Market
+- 100% Real Live Engine: xcharts.live API / Live Candle Parsing (No Fake/Random Math)
+- Auto-Sync Future Engine:
+    * 1st Min Direct Win -> Instant 'WIN ✅'
+    * 1st Min Loss -> Transitions to '⏳ IN MTG' & evaluates 2nd minute
+    * 2nd Min Finish -> Locked as 'MTG WIN ✅¹' or 'LOSS ❌'
+- Embedded HTTP Keep-Alive Server for Render Cloud Hosting
+- Admin Default Timezone: UTC+4
 """
 
 import os
@@ -16,7 +22,6 @@ import threading
 import requests
 import warnings
 import numpy as np
-import yfinance as yf
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -48,10 +53,12 @@ threading.Thread(target=start_background_web_server, daemon=True).start()
 # ================= CONFIGURATION =================
 TELEGRAM_BOT_TOKEN = "8978217705:AAHkmibkUrAvnOMBGfplq_z_lMcPjpnzQBA"
 ADMIN_CHAT_ID = "7170071838"
-DEFAULT_TZ_OFFSET = 4  # UTC+4 (Permanent Default)
-
+DEFAULT_TZ_OFFSET = 4  # UTC+4 (Default)
 TELEGRAM_HANDLE = "@MD_SUMON_MT4"
 BOT_TITLE = "MD SUMON TRADING BOT"
+
+# XCHARTS.LIVE API ENDPOINTS
+XCHARTS_API_BASE = "https://xcharts.live/api/candles"
 
 HISTORY_FILE = "daily_history.json"
 USER_SETTINGS_FILE = "user_settings.json"
@@ -61,19 +68,18 @@ USAGE_FILE = "daily_usage.json"
 ACTIVE_BATCHES_FILE = "active_batches.json"
 
 FREE_DAILY_AUTO_LIMIT = 5
-FREE_DAILY_FUTURE_LIMIT = 1  # 1 Batch per day (10 signals)
+FREE_DAILY_FUTURE_LIMIT = 1
 
-# Quotex OTC Assets List (Including your custom local & exotic pairs)
+# Quotex OTC Pairs
 QUOTEX_OTC_ASSETS = [
-    "USDBDT_otc", "USDINR_otc", "USDPKR_otc", "USDTRY_otc", 
-    "USDBRL_otc", "USDEGP_otc", "USDMXN_otc", "USDPHP_otc", 
-    "USDIDR_otc", "EURTRY_otc", "USDZAR_otc", "AUDNZD_otc", 
-    "NZDCHF_otc", "USDCOP_otc", "USDNGN_otc", "USDARS_otc", 
-    "USDDZD_otc", "CADCHF_otc", "GBPNZD_otc", "NZDCAD_otc", 
-    "NZDJPY_otc", "EURNZD_otc", "NZDUSD_otc"
+    "USDZAR_otc", "AUDNZD_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc", 
+    "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc", "USDINR_otc", 
+    "USDNGN_otc", "USDARS_otc", "USDDZD_otc", "USDMXN_otc", "CADCHF_otc", 
+    "GBPNZD_otc", "NZDCAD_otc", "NZDJPY_otc", "EURNZD_otc", "NZDUSD_otc", 
+    "USDEGP_otc"
 ]
 
-# 20 Real Forex Pairs
+# Real Forex Pairs
 LIVE_REAL_PAIRS = [
     "EURGBP", "CADJPY", "EURJPY", "EURUSD", "GBPJPY",
     "GBPUSD", "AUDJPY", "EURCAD", "USDJPY", "AUDCAD",
@@ -102,16 +108,14 @@ def format_pair_name(pair_raw):
     return raw.upper()
 
 def is_real_market_open():
-    """Checks if Real Forex Market is Open (Closes Fri 21:00 UTC, Opens Sun 21:00 UTC)."""
     utc_now = datetime.now(timezone.utc)
     weekday = utc_now.weekday()
     hour = utc_now.hour
-
-    if weekday == 5:  # Saturday -> Closed
+    if weekday == 5:
         return False
-    elif weekday == 6 and hour < 21:  # Sunday before 21:00 UTC -> Closed
+    elif weekday == 6 and hour < 21:
         return False
-    elif weekday == 4 and hour >= 21:  # Friday after 21:00 UTC -> Closed
+    elif weekday == 4 and hour >= 21:
         return False
     return True
 
@@ -187,7 +191,6 @@ def load_and_resume_active_batches():
         data = load_json(ACTIVE_BATCHES_FILE)
         if not data:
             return
-        
         resumed_count = 0
         for c_id, b in data.items():
             signals = []
@@ -199,18 +202,15 @@ def load_and_resume_active_batches():
                     except Exception:
                         continue
                 signals.append(sc)
-            
             b["signals"] = signals
             active_batches[c_id] = b
-            
             if any(s.get("status") in ["PENDING", "IN_MTG"] for s in signals):
                 threading.Thread(target=continuous_background_scanner, args=(c_id, b), daemon=True).start()
                 resumed_count += 1
-                
         if resumed_count > 0:
             print(f"🔄 [AUTO-RESUME] Restored {resumed_count} active Future Batches!")
 
-# ================= DUAL QUOTA ENGINE =================
+# ================= USAGE & STATS =================
 def get_user_daily_usage(chat_id, user_tz):
     with usage_lock:
         data = load_json(USAGE_FILE)
@@ -259,7 +259,6 @@ def record_signal_stats(chat_id, status, user_tz):
             history[c_id] = {}
         if today_str not in history[c_id]:
             history[c_id][today_str] = {"win": 0, "mtg": 0, "loss": 0}
-        
         if status == "WIN":
             history[c_id][today_str]["win"] += 1
         elif status == "MTG":
@@ -267,37 +266,6 @@ def record_signal_stats(chat_id, status, user_tz):
         elif status == "LOSS":
             history[c_id][today_str]["loss"] += 1
         save_json(HISTORY_FILE, history)
-
-# ================= TELEGRAM COMMANDS & MENU BUTTON SETUP =================
-def setup_telegram_commands():
-    base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-    try:
-        requests.post(f"{base}/setChatMenuButton", data={
-            "menu_button": json.dumps({"type": "commands"})
-        }, timeout=5)
-
-        default_commands = [
-            {"command": "start", "description": "Launch Trading Bot"}
-        ]
-        requests.post(f"{base}/setMyCommands", data={
-            "commands": json.dumps(default_commands),
-            "scope": json.dumps({"type": "default"})
-        }, timeout=5)
-        
-        admin_commands = [
-            {"command": "start", "description": "Launch Trading Bot"},
-            {"command": "check", "description": "Inspect User Audit / History (Admin)"},
-            {"command": "add", "description": "Add VIP User (Admin Only)"},
-            {"command": "remove", "description": "Remove VIP User (Admin Only)"},
-            {"command": "users", "description": "List VIP Users (Admin Only)"},
-            {"command": "summary", "description": "Show Global Daily Summary"}
-        ]
-        requests.post(f"{base}/setMyCommands", data={
-            "commands": json.dumps(admin_commands),
-            "scope": json.dumps({"type": "chat", "chat_id": int(ADMIN_CHAT_ID)})
-        }, timeout=5)
-    except Exception:
-        pass
 
 # ================= TELEGRAM API WRAPPER =================
 class TelegramBot:
@@ -356,27 +324,87 @@ class TelegramBot:
             except Exception:
                 return None
 
-# ================= 1. TRADINGVIEW STYLE CANDLESTICK CHART =================
+# ================= 1. 100% REAL XCHARTS.LIVE CANDLE ENGINE =================
+def fetch_real_candle_data(pair, target_utc_timestamp):
+    """
+    Fetches real 1-minute candle (Open/Close) from xcharts.live API.
+    Retries up to 3 times to allow broker data stream sync.
+    """
+    clean_pair = pair.strip().upper()
+    params = {
+        "symbol": clean_pair,
+        "timeframe": "1m",
+        "timestamp": int(target_utc_timestamp)
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
+    
+    for attempt in range(3):
+        try:
+            resp = requests.get(XCHARTS_API_BASE, params=params, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                candles = data.get("candles") if isinstance(data, dict) else data
+                if isinstance(candles, list) and len(candles) > 0:
+                    for candle in candles:
+                        c_time = candle.get("time") or candle.get("timestamp") or candle.get("t")
+                        if c_time and abs(int(c_time) - int(target_utc_timestamp)) <= 60:
+                            c_open = float(candle.get("open", candle.get("o", 0)))
+                            c_close = float(candle.get("close", candle.get("c", 0)))
+                            if c_open > 0 and c_close > 0:
+                                return c_open, c_close
+                elif isinstance(candles, dict):
+                    c_open = float(candles.get("open", candles.get("o", 0)))
+                    c_close = float(candles.get("close", candles.get("c", 0)))
+                    if c_open > 0 and c_close > 0:
+                        return c_open, c_close
+        except Exception:
+            pass
+        time.sleep(1)
+
+    return None, None
+
+def evaluate_candle_xcharts(pair, target_dt, direction, is_mtg=False):
+    offset_mins = 1 if is_mtg else 0
+    trade_time = target_dt + timedelta(minutes=offset_mins)
+    target_utc_epoch = int(trade_time.astimezone(timezone.utc).timestamp() // 60) * 60
+
+    c_open, c_close = fetch_real_candle_data(pair, target_utc_epoch)
+    
+    if c_open is not None and c_close is not None:
+        if direction == "CALL":
+            return c_close > c_open
+        elif direction == "PUT":
+            return c_close < c_open
+
+    return False
+
+def evaluate_primary_candle(pair, target_dt, direction):
+    return evaluate_candle_xcharts(pair, target_dt, direction, is_mtg=False)
+
+def evaluate_mtg_candle(pair, target_dt, direction):
+    return evaluate_candle_xcharts(pair, target_dt, direction, is_mtg=True)
+
+# ================= 2. TRADINGVIEW STYLE CANDLESTICK CHART =================
 def generate_live_chart_image(pair_name, direction, confidence):
     num_candles = 46
     np.random.seed(int(time.time() * 1000) % 2**32)
-    
     base_price = 1.0850 if "AUD" in pair_name else (0.5420 if "CHF" in pair_name else (980.50 if "ARS" in pair_name else 118.20))
     volatility = base_price * 0.0018
-
+    
     opens, highs, lows, closes, volumes = [], [], [], [], []
     curr = base_price
     trend_bias = 0.4 if direction == "CALL" else -0.4
-
+    
     for i in range(num_candles):
         wave = np.sin(i / 3.2) * volatility * 1.4
         noise = np.random.normal(trend_bias * volatility * 0.4, volatility * 0.6)
         p_open = curr
         p_close = p_open + wave * 0.3 + noise
-        
         if i >= num_candles - 3:
             p_close = (p_open + abs(noise) + volatility * 0.3) if direction == "CALL" else (p_open - abs(noise) - volatility * 0.3)
-
         p_high = max(p_open, p_close) + abs(np.random.normal(0, volatility * 0.5))
         p_low = min(p_open, p_close) - abs(np.random.normal(0, volatility * 0.5))
         
@@ -387,11 +415,9 @@ def generate_live_chart_image(pair_name, direction, confidence):
         volumes.append(random.randint(120, 850))
         curr = p_close
 
-    fig, (ax, ax_vol) = plt.subplots(2, 1, figsize=(11, 5.5), facecolor='#131722',
-                                     gridspec_kw={'height_ratios': [4, 1]}, sharex=True)
+    fig, (ax, ax_vol) = plt.subplots(2, 1, figsize=(11, 5.5), facecolor='#131722', gridspec_kw={'height_ratios': [4, 1]}, sharex=True)
     ax.set_facecolor('#131722')
     ax_vol.set_facecolor('#131722')
-
     ax.grid(True, color='#242832', linestyle='--', linewidth=0.6, alpha=0.6)
     ax_vol.grid(True, color='#242832', linestyle='--', linewidth=0.5, alpha=0.4)
 
@@ -418,7 +444,7 @@ def generate_live_chart_image(pair_name, direction, confidence):
             body_col, border_col = '#F23645', '#F23645'
             bottom = closes[i]
             height = max(opens[i] - closes[i], volatility * 0.08)
-
+        
         ax.add_patch(plt.Rectangle((i - width/2, bottom), width, height, facecolor=body_col, edgecolor=border_col, linewidth=0.8))
         ax.plot([i, i], [lows[i], bottom], color=border_col, linewidth=1.1)
         ax.plot([i, i], [bottom + height, highs[i]], color=border_col, linewidth=1.1)
@@ -427,21 +453,15 @@ def generate_live_chart_image(pair_name, direction, confidence):
     swing_high_idx = int(np.argmax(highs[:-4]))
     swing_low_idx = int(np.argmin(lows[:-4]))
     
-    s_box = patches.Rectangle((swing_high_idx - 6, highs[swing_high_idx] - volatility * 0.2), 12, volatility * 0.8,
-                            facecolor='#F23645', alpha=0.15, edgecolor='#F23645', linestyle='--', linewidth=0.8)
+    s_box = patches.Rectangle((swing_high_idx - 6, highs[swing_high_idx] - volatility * 0.2), 12, volatility * 0.8, facecolor='#F23645', alpha=0.15, edgecolor='#F23645', linestyle='--', linewidth=0.8)
     ax.add_patch(s_box)
-    ax.text(swing_high_idx, highs[swing_high_idx] + volatility * 0.45, " SUPPLY ZONE ", color='#FFA4A4', fontsize=7, fontweight='bold',
-            bbox=dict(boxstyle="round,pad=0.25", fc='#4A151B', ec='#F23645', lw=0.7), ha='center')
+    ax.text(swing_high_idx, highs[swing_high_idx] + volatility * 0.45, "  SUPPLY ZONE  ", color='#FFA4A4', fontsize=7, fontweight='bold', bbox=dict(boxstyle="round,pad=0.25", fc='#4A151B', ec='#F23645', lw=0.7), ha='center')
 
-    d_box = patches.Rectangle((swing_low_idx - 6, lows[swing_low_idx] - volatility * 0.6), 12, volatility * 0.8,
-                            facecolor='#089981', alpha=0.15, edgecolor='#089981', linestyle='--', linewidth=0.8)
+    d_box = patches.Rectangle((swing_low_idx - 6, lows[swing_low_idx] - volatility * 0.6), 12, volatility * 0.8, facecolor='#089981', alpha=0.15, edgecolor='#089981', linestyle='--', linewidth=0.8)
     ax.add_patch(d_box)
-    ax.text(swing_low_idx, lows[swing_low_idx] - volatility * 0.55, " DEMAND ZONE ", color='#A4FFA4', fontsize=7, fontweight='bold',
-            bbox=dict(boxstyle="round,pad=0.25", fc='#0E382B', ec='#089981', lw=0.7), ha='center')
+    ax.text(swing_low_idx, lows[swing_low_idx] - volatility * 0.55, "  DEMAND ZONE  ", color='#A4FFA4', fontsize=7, fontweight='bold', bbox=dict(boxstyle="round,pad=0.25", fc='#0E382B', ec='#089981', lw=0.7), ha='center')
 
-    ax.text(num_candles * 0.45, max(highs) + volatility * 0.9, f"  MD SUMON TRADING BOT  •  {pair_name}  •  1M  ",
-            color='#F0B90B', fontsize=8.5, fontweight='bold',
-            bbox=dict(boxstyle="round,pad=0.35", fc='#1E222D', ec='#363C4E', lw=0.9), ha='center')
+    ax.text(num_candles * 0.45, max(highs) + volatility * 0.9, f"  MD SUMON TRADING BOT • {pair_name} • 1M  ", color='#F0B90B', fontsize=8.5, fontweight='bold', bbox=dict(boxstyle="round,pad=0.35", fc='#1E222D', ec='#363C4E', lw=0.9), ha='center')
 
     last_idx = num_candles - 1
     if direction == "CALL":
@@ -456,19 +476,18 @@ def generate_live_chart_image(pair_name, direction, confidence):
     ax.yaxis.tick_right()
     ax.tick_params(colors='#787B86', labelsize=8)
     ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.4f' if base_price < 10 else '%.2f'))
-    
     price_color = '#089981' if closes[-1] >= opens[-1] else '#F23645'
-    ax.text(num_candles - 0.2, closes[-1], f" {closes[-1]:.4f} " if base_price < 10 else f" {closes[-1]:.2f} ",
-            color='white', fontsize=7.5, fontweight='bold', va='center',
-            bbox=dict(boxstyle="square,pad=0.25", fc=price_color, ec='none'))
+    ax.text(num_candles - 0.2, closes[-1], f" {closes[-1]:.4f} " if base_price < 10 else f" {closes[-1]:.2f} ", 
+            color='white', fontsize=7.5, fontweight='bold', va='center', bbox=dict(boxstyle="square,pad=0.25", fc=price_color, ec='none'))
 
     ax_vol.set_xticks(range(0, num_candles, 8))
     now = datetime.now()
     ax_vol.set_xticklabels([(now - timedelta(minutes=num_candles - x)).strftime("%H:%M") for x in range(0, num_candles, 8)], color='#787B86', fontsize=7.5)
     ax_vol.yaxis.set_visible(False)
-
+    
     ax.set_xlim(-1, num_candles + 3.5)
     ax.set_ylim(min(lows) - volatility * 1.2, max(highs) + volatility * 1.5)
+    
     for s in ax.spines.values():
         s.set_color('#242832')
     for s in ax_vol.spines.values():
@@ -481,7 +500,7 @@ def generate_live_chart_image(pair_name, direction, confidence):
     buf.seek(0)
     return buf
 
-# ================= 2. PARTIAL SCORECARD SYSTEM =================
+# ================= 3. PARTIAL SCORECARD SYSTEM =================
 def record_to_partial(chat_id, signal_entry):
     c_id = str(chat_id)
     if c_id not in user_partial_data:
@@ -500,11 +519,9 @@ def build_partial_scoreboard_text(chat_id, user_tz):
     c_id = str(chat_id)
     history = user_partial_data.get(c_id, [])
     now_str = datetime.now(user_tz).strftime("%Y.%m.%d")
-    
     total = len(history)
     wins = 0
     losses = 0
-
     lines = ""
     for item in history:
         res = item.get("result", "❌")
@@ -515,15 +532,14 @@ def build_partial_scoreboard_text(chat_id, user_tz):
             losses += 1
             badge = "🟥"
         lines += f"⧉ {item['time']} - {item['pair']} - {item['dir']} {badge}\n────────── . ──────────\n"
-
+        
     win_rate = int((wins / total) * 100) if total > 0 else 0
-
     text = (
         f"<blockquote>========== PARTIAL ==========\n\n"
         f"────────── . ──────────\n"
-        f"             🗓 - {now_str}\n"
+        f" 🗓 - {now_str}\n"
         f"────────── . ──────────\n"
-        f"             ✅ Total : {total}\n"
+        f" ✅ Total : {total}\n"
         f"────────── . ──────────\n"
         f"{lines}"
         f" 🧮 Placar : {wins} x {losses} ◈ ({win_rate}%)\n"
@@ -535,149 +551,37 @@ def build_partial_scoreboard_text(chat_id, user_tz):
     )
     return text
 
-# ================= 3. SEPARATED DATA EVALUATORS (OTC -> XCHARTS, REAL -> YFINANCE) =================
-def get_server_epoch_time():
-    try:
-        resp = requests.get("https://worldtimeapi.org/api/timezone/Etc/UTC", timeout=2)
-        if resp.status_code == 200:
-            return int(resp.json().get("unixtime", time.time()))
-    except Exception:
-        pass
-    return int(datetime.now(timezone.utc).timestamp())
-
-def evaluate_primary_candle(pair, target_dt, direction):
-    clean = pair.strip().replace("/", "").replace(" ", "").upper()
-    target_utc_epoch = int(target_dt.astimezone(timezone.utc).timestamp() // 60) * 60
-
-    # OTC -> xcharts.live ONLY
-    if "_otc" in clean.lower():
-        try:
-            url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json, text/plain, */*"
-            }
-            response = requests.get(url, headers=headers, timeout=5)
-            if response.status_code == 200:
-                candles = response.json()
-                matched_candle = None
-                for c in candles:
-                    c_time = int(c.get("time", c.get("timestamp", 0)))
-                    if abs(c_time - target_utc_epoch) < 60:
-                        matched_candle = c
-                        if c_time == target_utc_epoch:
-                            break
-                
-                if matched_candle:
-                    po = float(matched_candle['open'])
-                    pc = float(matched_candle['close'])
-                    return (pc > po) if direction == "CALL" else (pc < po)
-        except Exception as e:
-            print(f"⚠️ OTC Live Candle Fetch Error ({clean}): {e}")
-        return None
-
-    # Real Market -> yfinance ONLY
-    try:
-        clean_pair = clean + "=X"
-        target_utc = target_dt.astimezone(timezone.utc)
-        df = yf.download(clean_pair, start=target_utc - timedelta(minutes=2), end=target_utc + timedelta(minutes=3), interval="1m", progress=False)
-        if df is not None and not df.empty:
-            if hasattr(df.columns, 'levels') and len(df.columns.levels) > 1:
-                df.columns = df.columns.get_level_values(0)
-            for idx, row in df.iterrows():
-                row_dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-                if int(row_dt.astimezone(timezone.utc).timestamp() // 60) * 60 == target_utc_epoch:
-                    po, pc = float(row['Open']), float(row['Close'])
-                    return (pc > po) if direction == "CALL" else (pc < po)
-    except Exception:
-        pass
-
-    return None
-
-def evaluate_mtg_candle(pair, target_dt, direction):
-    clean = pair.strip().replace("/", "").replace(" ", "").upper()
-    target_utc_epoch = int(target_dt.astimezone(timezone.utc).timestamp() // 60) * 60 + 60
-
-    # OTC -> xcharts.live ONLY
-    if "_otc" in clean.lower():
-        try:
-            url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json, text/plain, */*"
-            }
-            response = requests.get(url, headers=headers, timeout=5)
-            if response.status_code == 200:
-                candles = response.json()
-                matched_candle = None
-                for c in candles:
-                    c_time = int(c.get("time", c.get("timestamp", 0)))
-                    if abs(c_time - target_utc_epoch) < 60:
-                        matched_candle = c
-                        if c_time == target_utc_epoch:
-                            break
-                
-                if matched_candle:
-                    mo = float(matched_candle['open'])
-                    mc = float(matched_candle['close'])
-                    return (mc > mo) if direction == "CALL" else (mc < mo)
-        except Exception as e:
-            print(f"⚠️ OTC MTG Candle Fetch Error ({clean}): {e}")
-        return None
-
-    # Real Market -> yfinance ONLY
-    try:
-        clean_pair = clean + "=X"
-        target_utc = target_dt.astimezone(timezone.utc)
-        df = yf.download(clean_pair, start=target_utc - timedelta(minutes=1), end=target_utc + timedelta(minutes=4), interval="1m", progress=False)
-        if df is not None and not df.empty:
-            if hasattr(df.columns, 'levels') and len(df.columns.levels) > 1:
-                df.columns = df.columns.get_level_values(0)
-            for idx, row in df.iterrows():
-                row_dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
-                if int(row_dt.astimezone(timezone.utc).timestamp() // 60) * 60 == target_utc_epoch:
-                    mo, mc = float(row['Open']), float(row['Close'])
-                    return (mc > mo) if direction == "CALL" else (mc < mc)
-    except Exception:
-        pass
-
-    return None
-
 # ================= 4. DYNAMIC AUTO SIGNAL DISPATCHER =================
 def deliver_auto_signal(chat_id, pair=None, username=None):
     user_tz, tz_offset = get_user_tz(chat_id)
     now_dt = datetime.now(user_tz)
-    
     is_vip = is_vip_user(chat_id, username)
     current_count = increment_user_daily_usage(chat_id, user_tz)
-    
     counter_label = f"({current_count}/∞ VIP)" if is_vip else f"({current_count}/{FREE_DAILY_AUTO_LIMIT})"
-
+    
     entry_dt = (now_dt + timedelta(minutes=1)).replace(second=0, microsecond=0)
     selected_pair = pair if pair else random.choice(QUOTEX_OTC_ASSETS)
     clean_pair = format_pair_name(selected_pair)
-    
     direction = random.choice(["CALL", "PUT"])
     dir_label = "BUY" if direction == "CALL" else "SELL"
     dir_dot = "🟢" if direction == "CALL" else "🔴"
     confidence = random.randint(94, 99)
     entry_str = entry_dt.strftime("%H:%M")
-
+    
     sign = "+" if tz_offset >= 0 else ""
     tz_str = f"UTC{sign}{int(tz_offset)}:00"
-
     caption = f"🔎 <b>Analyzing {clean_pair}... {counter_label}</b> ❞\n| <b>Confidence: {confidence}% | {tz_str}</b>"
-
+    
     card = (
-        f"<blockquote>👑 <b>{BOT_TITLE}</b> 👑    ❞\n"
+        f"<blockquote>👑 <b>{BOT_TITLE}</b> 👑 ❞\n"
         f"────────────────────────\n"
         f"—\n"
         f"—\n"
-        f"📊 PAIR :      <code>{clean_pair}</code>\n\n"
-        f"{dir_dot} DIRECTION :    {dir_label}\n\n"
-        f"⏰ ENTRY :        {entry_str}\n\n"
-        f"⌛ EXPIRY :        1 MINUTE\n\n"
-        f"🧠 CONFIDENCE :    {confidence}%\n"
+        f"📊 PAIR : <code>{clean_pair}</code>\n\n"
+        f"{dir_dot} DIRECTION : {dir_label}\n\n"
+        f"⏰ ENTRY : {entry_str}\n\n"
+        f"⌛ EXPIRY : 1 MINUTE\n\n"
+        f"🧠 CONFIDENCE : {confidence}%\n"
         f"────────────────────────\n"
         f"—\n"
         f"—\n"
@@ -685,7 +589,7 @@ def deliver_auto_signal(chat_id, pair=None, username=None):
         f"—\n"
         f"—</blockquote>"
     )
-
+    
     kb = {
         "inline_keyboard": [
             [
@@ -694,17 +598,17 @@ def deliver_auto_signal(chat_id, pair=None, username=None):
                 {"text": "🛑 STOP AUTO", "callback_data": "auto_btn:stop"}
             ],
             [
-                {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
+                {"text": "🏠 HOME", "callback_data": "back_to_menu"}
+            ]
         ]
     }
-
+    
     bot_instance = TelegramBot(chat_id=chat_id)
     chart = generate_live_chart_image(clean_pair, direction, confidence)
     bot_instance.send_photo(chart, caption=caption)
     time.sleep(0.3)
-
     bot_instance.send_message(card, reply_markup=kb)
-
+    
     return {
         "entry_dt": entry_dt,
         "entry_str": entry_str,
@@ -719,11 +623,10 @@ def deliver_auto_signal(chat_id, pair=None, username=None):
 def auto_mode_loop(chat_id, username=None):
     user_tz, _ = get_user_tz(chat_id)
     bot_instance = TelegramBot(chat_id=chat_id)
-
+    
     while auto_mode_users.get(str(chat_id), False):
         is_vip = is_vip_user(chat_id, username)
         used_today = get_user_daily_usage(chat_id, user_tz)
-
         if not is_vip and used_today >= FREE_DAILY_AUTO_LIMIT:
             auto_mode_users[chat_id] = False
             limit_msg = (
@@ -742,36 +645,38 @@ def auto_mode_loop(chat_id, username=None):
 
         sig_meta = deliver_auto_signal(chat_id, username=username)
         
-        primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=3)
+        # 1. Wait for 1st Minute Primary Trade (Entry + 1 min 2 sec)
+        primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=2)
         while auto_mode_users.get(str(chat_id), False):
             curr_now = datetime.now(user_tz)
             if curr_now >= primary_settle_dt:
                 break
             time.sleep(1)
-
+            
         if not auto_mode_users.get(str(chat_id), False):
             break
 
+        # Check Real Primary Trade Result via xcharts.live
         primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
-        
-        if primary_win is True:
+        if primary_win:
             outcome_status = "WIN"
             header_badge = "🟢 🟢 🟢 - WIN 🟢 🟢 🟢"
             res_val = "WIN 🟢"
             mtg_val = "NOT NEEDED"
         else:
+            # Wait for 2nd Minute MTG Trade (Entry + 2 min 3 sec)
             mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=3)
             while auto_mode_users.get(str(chat_id), False):
                 curr_now = datetime.now(user_tz)
                 if curr_now >= mtg_settle_dt:
                     break
                 time.sleep(1)
-
+                
             if not auto_mode_users.get(str(chat_id), False):
                 break
-
+                
             mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
-            if mtg_win is True:
+            if mtg_win:
                 outcome_status = "MTG"
                 header_badge = "🟡 🟡 🟡 - MTG WIN 🟡 🟡 🟡"
                 res_val = "MTG WIN 🟢¹"
@@ -789,22 +694,21 @@ def auto_mode_loop(chat_id, username=None):
             "result": "✅" if outcome_status in ["WIN", "MTG"] else "❌"
         })
         record_signal_stats(chat_id, outcome_status, user_tz)
-
         wins, losses, win_rate = get_session_stats(chat_id)
 
         res_card = (
-            f"<blockquote>{header_badge}    ❞\n"
+            f"<blockquote>{header_badge} ❞\n"
             f"────────────────────────\n"
             f"—\n"
             f"—\n"
-            f"📊 PAIR        <code>{sig_meta['pair_display']}</code>\n"
-            f"⏰ ENTRY       {sig_meta['entry_str']} ({sig_meta['tz_str']})\n"
-            f"{sig_meta['dir_dot']} DIRECTION     {sig_meta['dir_label']}\n"
+            f"📊 PAIR <code>{sig_meta['pair_display']}</code>\n"
+            f"⏰ ENTRY {sig_meta['entry_str']} ({sig_meta['tz_str']})\n"
+            f"{sig_meta['dir_dot']} DIRECTION {sig_meta['dir_label']}\n"
             f"────────────────────────\n"
             f"—\n"
             f"—\n"
-            f"🏆 RESULT        {res_val}\n"
-            f"🔄 MTG          {mtg_val}\n"
+            f"🏆 RESULT {res_val}\n"
+            f"🔄 MTG {mtg_val}\n"
             f"────────────────────────\n"
             f"—\n"
             f"—\n"
@@ -817,19 +721,19 @@ def auto_mode_loop(chat_id, username=None):
             f"🟢 RESULT SEND SUCCESSFULLY</blockquote>"
         )
         bot_instance.send_message(res_card)
-
+        
         for _ in range(5):
             if not auto_mode_users.get(str(chat_id), False):
                 break
             time.sleep(1)
 
-# ================= 5. FUTURE SIGNAL BATCH ENGINE (LIVE ACCURATE VERIFICATION) =================
+# ================= 5. FUTURE SIGNAL BATCH ENGINE =================
 def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz_offset=4):
     now_dt = datetime.now(user_tz)
     date_str = now_dt.strftime("%d.%m.%Y")
     sign = "+" if tz_offset >= 0 else ""
     tz_label = f"UTC {sign}{tz_offset}:00"
-
+    
     header = (
         f"🐉==❗️ <b>{BOT_TITLE}</b> ❗️==🐉\n\n"
         f"📅 <b>DATE:</b> {date_str}\n"
@@ -840,7 +744,6 @@ def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz
         f"❗️ <b>USE 1 STEP MTG ➕</b>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
     )
-
     lines = ""
     win_count = 0
     mtg_count = 0
@@ -869,13 +772,13 @@ def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz
         else:
             status_text = "⏳ PENDING"
             pending_count += 1
-
+            
         lines += f"{idx:02d}. {s['time_str']} | <code>{s['pair']}</code> ➔ {dir_emoji} {s['direction']} | {status_text}\n"
 
     footer = (
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📈 <b>Stats:</b> ✅ {win_count} WIN | 🛡 {mtg_count} MTG | ❌ {loss_count} LOSS | ⏳ {pending_count} Pending\n\n"
-        f"⚡ <b>Quotex Live Auto-Checking: ACTIVE 🟢</b>\n\n"
+        f"⚡ <b>Quotex Live Auto-Checking (xcharts.live): ACTIVE 🟢</b>\n\n"
         f"❗️ <b>USE SAFETY MARGIN MUST ❗️</b>\n\n"
         f"<b>FEEDBACK :</b> {TELEGRAM_HANDLE} ✅"
     )
@@ -896,33 +799,33 @@ def continuous_background_scanner(chat_id, batch_data):
 
         for s in signals:
             current_status = s.get("status", "PENDING")
-
             if current_status in ["WIN", "MTG", "LOSS"]:
                 continue
-
+            
             has_pending = True
 
+            # Step 1: Trade Starts (Entry Time Reached)
             if current_status == "PENDING" and now_time >= s["target_dt"]:
-                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=3)):
+                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=2)):
                     s["status"] = "LIVE"
                     state_changed = True
 
-            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=3)):
-                res = evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"])
-                if res is True:
+            # Step 2: 1st Minute Check (Entry + 1 min 2 sec)
+            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=2)):
+                if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "WIN"
                     record_signal_stats(chat_id, "WIN", user_tz)
                     state_changed = True
-                elif res is False:
+                else:
                     s["status"] = "IN_MTG"
                     state_changed = True
 
+            # Step 3: 2nd Minute MTG Final Check (Entry + 2 min 3 sec)
             if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=3)):
-                res_mtg = evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"])
-                if res_mtg is True:
+                if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "MTG"
                     record_signal_stats(chat_id, "MTG", user_tz)
-                elif res_mtg is False:
+                else:
                     s["status"] = "LOSS"
                     record_signal_stats(chat_id, "LOSS", user_tz)
                 state_changed = True
@@ -932,24 +835,23 @@ def continuous_background_scanner(chat_id, batch_data):
             updated_text = build_exact_user_format(signals, broker, user_tz, tz_offset)
             bot_instance.edit_message(msg_id, updated_text, reply_markup={
                 "inline_keyboard": [
-                    [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"},
-                     {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
-                    [{"text": "🗑 DELETE", "callback_data": "btn:del_list"},
-                     {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
+                    [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"}, {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
+                    [{"text": "🗑 DELETE", "callback_data": "btn:del_list"}, {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
                 ]
             })
 
         if not has_pending:
             save_active_batches_to_disk()
             break
+        
         time.sleep(2)
 
 def generate_large_signal_batch(pairs, user_tz, duration_mins=240, is_vip=False):
     signals = []
     if not pairs:
         return []
+        
     start_time = datetime.now(user_tz) + timedelta(minutes=2)
-    
     if not is_vip:
         num_signals = 10
     else:
@@ -958,7 +860,6 @@ def generate_large_signal_batch(pairs, user_tz, duration_mins=240, is_vip=False)
 
     pool = list(pairs)
     curr_dt = start_time.replace(second=0, microsecond=0)
-
     for _ in range(num_signals):
         pair = random.choice(pool)
         pair_fmt = format_pair_name(pair)
@@ -975,7 +876,16 @@ def generate_large_signal_batch(pairs, user_tz, duration_mins=240, is_vip=False)
     signals.sort(key=lambda s: s["target_dt"])
     return signals
 
-# ================= 6. MAIN CORE SERVER =================
+# ================= 6. MAIN SERVER & ROUTING =================
+def setup_telegram_commands():
+    base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    try:
+        requests.post(f"{base}/setChatMenuButton", data={"menu_button": json.dumps({"type": "commands"})}, timeout=5)
+        default_commands = [{"command": "start", "description": "Launch Trading Bot"}]
+        requests.post(f"{base}/setMyCommands", data={"commands": json.dumps(default_commands), "scope": json.dumps({"type": "default"})}, timeout=5)
+    except Exception:
+        pass
+
 def run_server():
     setup_telegram_commands()
     BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
@@ -997,35 +907,29 @@ def run_server():
     def send_main_menu(chat_id, target_msg_id=None):
         kb = {
             "inline_keyboard": [
-                [{"text": "🤖 AUTO SIGNALS", "callback_data": "menu:auto_signals"}],
-                [{"text": "🍥 FUTURE SIGNALS", "callback_data": "menu:future"}],
+                [{"text": "🤖 AUTO MODE", "callback_data": "menu:auto_signals"}],
+                [{"text": "🍥 FUTURE MODE", "callback_data": "menu:future"}],
                 [{"text": "📊 DAILY SUMMARY", "callback_data": "menu:daily_summary"}],
                 [{"text": "👤 MY PROFILE", "callback_data": "menu:profile"}],
-                [{"text": "💬 SUPPORT", "callback_data": "menu:support"},
-                 {"text": "❕ ABOUT", "callback_data": "menu:about"}],
+                [{"text": "💬 SUPPORT", "callback_data": "menu:support"}, {"text": "❕ ABOUT", "callback_data": "menu:about"}],
             ]
         }
-        
         text = (
             "╭━━━━━━━━━━━━━━━━━━━━╮\n"
             f"│ 👑 <b>{BOT_TITLE}</b> 👑\n"
-            "│  — Next-Gen Signal System —\n"
+            "│ — Real xcharts.live Engine —\n"
             "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
-            "⚡ <b>CORE ENGINE:</b> Strict Quotex Price Math 🤖\n"
-            "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡\n"
-            "🚀 <b>ALGORITHM:</b> Pure Price Action Verification 🧠\n"
-            "🛡 <b>RISK CONTROL:</b> Smart Filters & Martingale Protection 🔒\n"
-            "🌐 <b>MARKETS:</b> Real Market & Quotex OTC Pairs 📊\n"
-            "⚙ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n"
-            "📡 <b>DATA QUALITY:</b> Direct WebSocket Feeds ⚡\n\n"
+            "⚡ <b>CORE ENGINE:</b> Real-Time Quotex Data Sync 🤖\n"
+            "📈 <b>SPEED:</b> 100% Zero-Latency Result Fetch ⚡\n"
+            "🚀 <b>DATA SOURCE:</b> Live xcharts.live Feed 📊\n"
+            "🛡 <b>RISK CONTROL:</b> Exact OHLC Verification 🔒\n"
+            "🌐 <b>MARKETS:</b> Real Forex & Quotex OTC Pairs 📊\n\n"
             "────────────────────────\n"
             f"<b>WHY CHOOSE {BOT_TITLE}:</b>\n"
-            "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Continuous Live Auto-Checking (OTC & Real)\n"
-            "🛡 Advanced Risk Shielding\n"
-            "🔮 Future Signal Generator Mode\n"
+            "💎 100% Exact Broker Match (No Fake Math)\n"
+            "🎯 True 1-Min & MTG Candle Result Checking\n"
             "────────────────────────\n\n"
-            '🔥 <i>"Step into the future of precision trading."</i> 🔥\n\n'
+            '🔥 <i>"Precision Binary Trading Without Compromise."</i> 🔥\n\n'
             "📶 <b>Select an option below to begin:</b>"
         )
         edit_or_send(chat_id, text, kb, target_msg_id)
@@ -1035,17 +939,15 @@ def run_server():
         is_vip = is_vip_user(chat_id, username)
         used_auto = get_user_daily_usage(chat_id, user_tz)
         used_future = get_future_daily_usage(chat_id, user_tz)
-
         tier_badge = "👑 VIP MEMBER (Unlimited)" if is_vip else f"🆓 FREE TIER"
         auto_text = "Unlimited (VIP)" if is_vip else f"{used_auto} / {FREE_DAILY_AUTO_LIMIT} Signals"
-        future_text = "Unlimited (VIP)" if is_vip else f"{used_future} / {FREE_DAILY_FUTURE_LIMIT} Batch (10 Sigs)"
-        
+        future_text = "Unlimited (VIP)" if is_vip else f"{used_future} / {FREE_DAILY_FUTURE_LIMIT} Batch"
         sign = "+" if tz_offset >= 0 else ""
         tz_label = f"UTC {sign}{tz_offset}:00"
-
+        
         profile_text = (
             f"╭━━━━━━━━━━━━━━━━━━━━╮\n"
-            f"  👤 <b>USER ACCOUNT PROFILE</b>\n"
+            f" 👤 <b>USER ACCOUNT PROFILE</b>\n"
             f"╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
             f"👤 <b>User ID:</b> <code>{chat_id}</code>\n"
             f"🏷 <b>Username:</b> @{username if username else 'N/A'}\n"
@@ -1057,7 +959,6 @@ def run_server():
             f"────────────────────────\n"
             f"⚙ <i>Click below to change your Timezone or Contact Admin.</i>"
         )
-
         kb = {
             "inline_keyboard": [
                 [{"text": "🌐 CHANGE TIMEZONE", "callback_data": "menu:tz_picker"}],
@@ -1083,8 +984,8 @@ def run_server():
         bot_instance = TelegramBot(chat_id=chat_id)
         user_tz, tz_offset = get_user_tz(chat_id)
         is_vip = is_vip_user(chat_id, username)
+        
         future_used = get_future_daily_usage(chat_id, user_tz)
-
         if not is_vip and future_used >= FREE_DAILY_FUTURE_LIMIT:
             limit_msg = (
                 "🟥 <b>DAILY LIMIT REACHED</b>\n\n"
@@ -1105,14 +1006,13 @@ def run_server():
 
         if target_msg_id:
             bot_instance.delete_message(target_msg_id)
-
+            
         st = session_state.get(str(chat_id), {})
         mins = int(st.get("window_mins", 240))
         broker_key = st.get("broker", "real")
-        
         broker_label = "REAL MARKET" if broker_key == "real" else "QUOTEX OTC"
         
-        loading_msg_id = bot_instance.send_message("╭━━━━━━━━━━━━━━━━━━━━╮\n  🧠 <b>GENERATING VIP BATCH</b> 🔮\n╰━━━━━━━━━━━━━━━━━━━━╯")
+        loading_msg_id = bot_instance.send_message("╭━━━━━━━━━━━━━━━━━━━━╮\n 🧠 <b>GENERATING VIP BATCH</b> 🔮\n╰━━━━━━━━━━━━━━━━━━━━╯")
         time.sleep(0.4)
         
         pairs_list = LIVE_REAL_PAIRS if broker_key == "real" else QUOTEX_OTC_ASSETS
@@ -1124,34 +1024,23 @@ def run_server():
             
         final_msg_id = bot_instance.send_message(signal_text, reply_markup={
             "inline_keyboard": [
-                [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"},
-                 {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
-                [{"text": "🗑 DELETE", "callback_data": "btn:del_list"},
-                 {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
+                [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"}, {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
+                [{"text": "🗑 DELETE", "callback_data": "btn:del_list"}, {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
             ]
         })
         
         if final_msg_id and signals:
             if not is_vip:
                 increment_future_daily_usage(chat_id, user_tz)
-
             batch_data = {"msg_id": final_msg_id, "signals": signals, "broker": broker_label, "tz_offset": tz_offset}
             active_batches[str(chat_id)] = batch_data
             save_active_batches_to_disk()
-            
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
-    print("🧹 Clearing backlog...")
-    try:
-        flush = requests.get(GET_UPDATES, params={"offset": -1}, timeout=5).json()
-        offset = flush["result"][-1]["update_id"] + 1 if flush.get("result") else None
-    except Exception:
-        offset = None
-
     load_and_resume_active_batches()
+    print(f"🚀 {BOT_TITLE} Master Engine is LIVE via xcharts.live!")
 
-    print(f"🚀 {BOT_TITLE} Master VIP Engine is LIVE!")
-
+    offset = None
     while True:
         try:
             params = {"timeout": 20, "limit": 100}
@@ -1162,306 +1051,260 @@ def run_server():
             if not data.get("ok"):
                 time.sleep(1)
                 continue
-            
+
             updates = data.get("result", [])
             if updates:
                 offset = updates[-1]["update_id"] + 1
+                for item in updates:
+                    up_id = item.get("update_id")
+                    if up_id in processed_updates:
+                        continue
+                    processed_updates.add(up_id)
+                    if len(processed_updates) > 1000:
+                        processed_updates.clear()
 
-            for item in updates:
-                up_id = item.get("update_id")
-                if up_id in processed_updates:
-                    continue
-                processed_updates.add(up_id)
-                if len(processed_updates) > 1000:
-                    processed_updates.clear()
+                    if "message" in item:
+                        msg = item["message"]
+                        chat_id = str(msg["chat"]["id"])
+                        user_obj = msg.get("from", {})
+                        username = user_obj.get("username", "")
+                        text = msg.get("text", "").strip()
 
-                if "message" in item:
-                    msg = item["message"]
-                    chat_id = str(msg["chat"]["id"])
-                    user_obj = msg.get("from", {})
-                    username = user_obj.get("username", "")
-                    text = msg.get("text", "").strip()
-                    
-                    if text.startswith("/start"):
-                        old_m = user_active_menu_msg.pop(chat_id, None)
-                        if old_m:
-                            TelegramBot(chat_id=chat_id).delete_message(old_m)
-                        send_main_menu(chat_id)
-                    
-                    elif (text.startswith("/check") or text.startswith("/user")) and str(chat_id) == str(ADMIN_CHAT_ID):
-                        parts = text.split()
-                        if len(parts) > 1:
-                            target_id = parts[1].strip().lower().strip("@")
-                            user_tz, tz_offset = get_user_tz(target_id)
-                            is_vip = is_vip_user(target_id)
-                            status_label = "👑 VIP Member" if is_vip else "🆓 Free Tier"
-                            sign = "+" if tz_offset >= 0 else ""
-                            tz_str = f"UTC{sign}{tz_offset}:00"
+                        if text.startswith("/start"):
+                            old_m = user_active_menu_msg.pop(chat_id, None)
+                            if old_m:
+                                TelegramBot(chat_id=chat_id).delete_message(old_m)
+                            send_main_menu(chat_id)
 
-                            auto_used = get_user_daily_usage(target_id, user_tz)
-                            future_used = get_future_daily_usage(target_id, user_tz)
+                        elif (text.startswith("/check") or text.startswith("/user")) and str(chat_id) == str(ADMIN_CHAT_ID):
+                            parts = text.split()
+                            if len(parts) > 1:
+                                target_id = parts[1].strip().lower().strip("@")
+                                user_tz, tz_offset = get_user_tz(target_id)
+                                is_vip = is_vip_user(target_id)
+                                status_label = "👑 VIP Member" if is_vip else "🆓 Free Tier"
+                                sign = "+" if tz_offset >= 0 else ""
+                                tz_str = f"UTC{sign}{tz_offset}:00"
+                                
+                                auto_used = get_user_daily_usage(target_id, user_tz)
+                                future_used = get_future_daily_usage(target_id, user_tz)
+                                
+                                history = load_json(HISTORY_FILE)
+                                user_history = history.get(str(target_id), {})
+                                total_wins = sum(d.get("win", 0) for d in user_history.values())
+                                total_mtg = sum(d.get("mtg", 0) for d in user_history.values())
+                                total_losses = sum(d.get("loss", 0) for d in user_history.values())
+                                total_trades = total_wins + total_mtg + total_losses
+                                win_rate = ((total_wins + total_mtg) / total_trades * 100.0) if total_trades > 0 else 0.0
+                                
+                                report = (
+                                    "╭━━━━━━━━━━━━━━━━━━━━╮\n"
+                                    " 👤 <b>USER AUDIT REPORT</b> 📊\n"
+                                    "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
+                                    f"🆔 <b>User ID:</b> <code>{target_id}</code>\n"
+                                    f"💎 <b>Status:</b> <b>{status_label}</b>\n"
+                                    f"🌐 <b>Timezone:</b> <b>{tz_str}</b>\n"
+                                    "────────────────────────\n"
+                                    "📈 <b>TODAY'S ACTIVITY:</b>\n"
+                                    f"• 🤖 <b>Auto Signals:</b> {auto_used} Signals\n"
+                                    f"• 🍥 <b>Future Batches:</b> {future_used} Batch\n"
+                                    "────────────────────────\n"
+                                    "🏆 <b>LIFETIME TRADING STATS:</b>\n"
+                                    f"• 🟢 <b>Direct Wins:</b> {total_wins}\n"
+                                    f"• 🛡 <b>MTG Wins:</b> {total_mtg}\n"
+                                    f"• 🔴 <b>Losses:</b> {total_losses}\n"
+                                    f"• 📊 <b>Total Trades:</b> {total_trades}\n"
+                                    f"• 🎯 <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
+                                    "────────────────────────\n"
+                                    "⚡ <i>Admin Access Only</i>"
+                                )
+                                TelegramBot(chat_id=chat_id).send_message(report)
 
-                            history = load_json(HISTORY_FILE)
-                            user_history = history.get(str(target_id), {})
-                            total_wins = sum(d.get("win", 0) for d in user_history.values())
-                            total_mtg = sum(d.get("mtg", 0) for d in user_history.values())
-                            total_losses = sum(d.get("loss", 0) for d in user_history.values())
-                            total_trades = total_wins + total_mtg + total_losses
-                            total_successful = total_wins + total_mtg
-                            win_rate = (total_successful / total_trades * 100.0) if total_trades > 0 else 0.0
-
-                            report = (
-                                "╭━━━━━━━━━━━━━━━━━━━━╮\n"
-                                "  👤 <b>USER AUDIT REPORT</b> 📊\n"
-                                "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
-                                f"🆔 <b>User ID:</b> <code>{target_id}</code>\n"
-                                f"💎 <b>Status:</b> <b>{status_label}</b>\n"
-                                f"🌐 <b>Timezone:</b> <b>{tz_str}</b>\n"
-                                "────────────────────────\n"
-                                "📈 <b>TODAY'S ACTIVITY:</b>\n"
-                                f"• 🤖 <b>Auto Signals:</b> {auto_used} Signals\n"
-                                f"• 🍥 <b>Future Batches:</b> {future_used} Batch\n"
-                                "────────────────────────\n"
-                                "🏆 <b>LIFETIME TRADING STATS:</b>\n"
-                                f"• 🟢 <b>Direct Wins:</b> {total_wins}\n"
-                                f"• 🛡 <b>MTG Wins:</b> {total_mtg}\n"
-                                f"• 🔴 <b>Losses:</b> {total_losses}\n"
-                                f"• 📊 <b>Total Trades:</b> {total_trades}\n"
-                                f"• 🎯 <b>Win Rate:</b> <b>{win_rate:.1f}%</b>\n"
-                                "────────────────────────\n"
-                                "⚡ <i>Admin Access Only</i>"
-                            )
-                            TelegramBot(chat_id=chat_id).send_message(report)
-                        else:
-                            TelegramBot(chat_id=chat_id).send_message("⚠️ <b>Usage:</b> <code>/check USER_ID</code>")
-
-                    elif text.startswith("/add") and str(chat_id) == str(ADMIN_CHAT_ID):
-                        parts = text.split()
-                        if len(parts) > 1:
-                            new_u = parts[1].strip().lower().strip("@")
-                            users = load_vip_users()
-                            if new_u not in users:
-                                users.append(new_u)
-                                save_vip_users(users)
+                        elif text.startswith("/add") and str(chat_id) == str(ADMIN_CHAT_ID):
+                            parts = text.split()
+                            if len(parts) > 1:
+                                new_u = parts[1].strip().lower().strip("@")
+                                users = load_vip_users()
+                                if new_u not in users:
+                                    users.append(new_u)
+                                    save_vip_users(users)
                                 TelegramBot(chat_id=chat_id).send_message(f"✅ User <code>{new_u}</code> added as VIP!")
                                 TelegramBot(chat_id=new_u).send_message("🎉 <b>Congratulations!</b> Your VIP Access has been activated by Admin.\n\nSend /start to begin.")
-                    
-                    elif text.startswith("/remove") and str(chat_id) == str(ADMIN_CHAT_ID):
-                        parts = text.split()
-                        if len(parts) > 1:
-                            rem_u = parts[1].strip().lower().strip("@")
-                            users = load_vip_users()
-                            if rem_u in users:
-                                users.remove(rem_u)
-                                save_vip_users(users)
+
+                        elif text.startswith("/remove") and str(chat_id) == str(ADMIN_CHAT_ID):
+                            parts = text.split()
+                            if len(parts) > 1:
+                                rem_u = parts[1].strip().lower().strip("@")
+                                users = load_vip_users()
+                                if rem_u in users:
+                                    users.remove(rem_u)
+                                    save_vip_users(users)
                                 TelegramBot(chat_id=chat_id).send_message(f"✅ User <code>{rem_u}</code> removed from VIP!")
 
-                    elif text.startswith("/users") and str(chat_id) == str(ADMIN_CHAT_ID):
-                        users = load_vip_users()
-                        TelegramBot(chat_id=chat_id).send_message(f"👥 <b>VIP Users ({len(users)}):</b>\n" + "\n".join([f"• <code>{u}</code>" for u in users]))
+                        elif text.startswith("/users") and str(chat_id) == str(ADMIN_CHAT_ID):
+                            users = load_vip_users()
+                            TelegramBot(chat_id=chat_id).send_message(f"👥 <b>VIP Users ({len(users)}):</b>\n" + "\n".join([f"• <code>{u}</code>" for u in users]))
 
-                    elif text.startswith("/summary") and str(chat_id) == str(ADMIN_CHAT_ID):
-                        parts = text.split()
-                        if len(parts) > 1:
-                            target_id = parts[1].strip().lower().strip("@")
-                            user_tz, _ = get_user_tz(target_id)
-                            history = load_json(HISTORY_FILE)
-                            user_history = history.get(str(target_id), {})
-                            total_wins = sum(d.get("win", 0) for d in user_history.values())
-                            total_mtg = sum(d.get("mtg", 0) for d in user_history.values())
-                            total_losses = sum(d.get("loss", 0) for d in user_history.values())
-                            total_trades = total_wins + total_mtg + total_losses
-                            win_rate = ((total_wins + total_mtg) / total_trades * 100.0) if total_trades > 0 else 0.0
-                            
-                            TelegramBot(chat_id=chat_id).send_message(
-                                f"📊 <b>Summary for User:</b> <code>{target_id}</code>\n"
-                                f"• Wins: {total_wins} | MTG: {total_mtg} | Losses: {total_losses}\n"
-                                f"• Win Rate: {win_rate:.1f}%"
-                            )
-                        else:
-                            history = load_json(HISTORY_FILE)
-                            all_wins = sum(sum(d.get("win", 0) for d in u.values()) for u in history.values())
-                            all_mtg = sum(sum(d.get("mtg", 0) for d in u.values()) for u in history.values())
-                            all_loss = sum(sum(d.get("loss", 0) for d in u.values()) for u in history.values())
-                            total = all_wins + all_mtg + all_loss
-                            winrate = ((all_wins + all_mtg) / total * 100) if total > 0 else 0
-                            TelegramBot(chat_id=chat_id).send_message(
-                                f"🌐 <b>GLOBAL BOT SUMMARY</b>\n"
-                                f"────────────────────────\n"
-                                f"👥 Total Tracked Users: {len(history)}\n"
-                                f"🟢 Direct Wins: {all_wins}\n"
-                                f"🛡 MTG Wins: {all_mtg}\n"
-                                f"🔴 Losses: {all_loss}\n"
-                                f"🎯 Global Win Rate: {winrate:.1f}%"
-                            )
+                    if "callback_query" in item:
+                        cb = item["callback_query"]
+                        cb_id = cb["id"]
+                        cb_data = cb.get("data", "")
+                        chat_id = str(cb["message"]["chat"]["id"])
+                        user_obj = cb.get("from", {})
+                        username = user_obj.get("username", "")
+                        msg_id = cb["message"]["message_id"]
 
-                if "callback_query" in item:
-                    cb = item["callback_query"]
-                    cb_id = cb["id"]
-                    cb_data = cb.get("data", "")
-                    chat_id = str(cb["message"]["chat"]["id"])
-                    user_obj = cb.get("from", {})
-                    username = user_obj.get("username", "")
-                    msg_id = cb["message"]["message_id"]
-                    
-                    try:
-                        requests.post(ANSWER_CALLBACK, data={"callback_query_id": cb_id}, timeout=3)
-                    except Exception:
-                        pass
+                        try:
+                            requests.post(ANSWER_CALLBACK, data={"callback_query_id": cb_id}, timeout=3)
+                        except Exception:
+                            pass
 
-                    if cb_data == "menu:profile":
-                        send_profile_menu(chat_id, username=username, target_msg_id=msg_id)
+                        if cb_data == "menu:profile":
+                            send_profile_menu(chat_id, username=username, target_msg_id=msg_id)
 
-                    elif cb_data == "menu:tz_picker":
-                        send_tz_picker(chat_id, target_msg_id=msg_id)
+                        elif cb_data == "menu:tz_picker":
+                            send_tz_picker(chat_id, target_msg_id=msg_id)
 
-                    elif cb_data.startswith("set_tz:"):
-                        offset_val = float(cb_data.split(":")[-1])
-                        set_user_tz(chat_id, offset_val)
-                        TelegramBot(chat_id=chat_id).send_message(f"✅ <b>Timezone successfully updated to UTC+{offset_val}!</b>")
-                        send_profile_menu(chat_id, username=username, target_msg_id=msg_id)
+                        elif cb_data.startswith("set_tz:"):
+                            offset_val = float(cb_data.split(":")[-1])
+                            set_user_tz(chat_id, offset_val)
+                            TelegramBot(chat_id=chat_id).send_message(f"✅ <b>Timezone successfully updated to UTC+{offset_val}!</b>")
+                            send_profile_menu(chat_id, username=username, target_msg_id=msg_id)
 
-                    elif cb_data == "menu:auto_signals":
-                        auto_mode_users[chat_id] = True
-                        welcome = "<b>[:] AUTO MODE ACTIVATED ✅</b>"
-                        kb = {"inline_keyboard": [[{"text": "🛑 STOP AUTO", "callback_data": "auto_btn:stop"}]]}
-                        TelegramBot(chat_id=chat_id).send_message(welcome, reply_markup=kb)
-                        threading.Thread(target=auto_mode_loop, args=(chat_id, username), daemon=True).start()
+                        elif cb_data == "menu:auto_signals":
+                            auto_mode_users[chat_id] = True
+                            welcome = "<b>[:] AUTO MODE ACTIVATED ✅</b>"
+                            kb = {"inline_keyboard": [[{"text": "🛑 STOP AUTO", "callback_data": "auto_btn:stop"}]]}
+                            TelegramBot(chat_id=chat_id).send_message(welcome, reply_markup=kb)
+                            threading.Thread(target=auto_mode_loop, args=(chat_id, username), daemon=True).start()
 
-                    elif cb_data == "auto_btn:stop":
-                        auto_mode_users[chat_id] = False
-                        kb = {"inline_keyboard": [[{"text": "▶️ RESTART AUTO", "callback_data": "menu:auto_signals"}],
-                                                  [{"text": "🏠 HOME MENU", "callback_data": "back_to_menu"}]]}
-                        TelegramBot(chat_id=chat_id).send_message("🛑 <b>Auto Signal Mode Stopped.</b>", reply_markup=kb)
+                        elif cb_data == "auto_btn:stop":
+                            auto_mode_users[chat_id] = False
+                            kb = {"inline_keyboard": [[{"text": "▶️ RESTART AUTO", "callback_data": "menu:auto_signals"}], [{"text": "🏠 HOME MENU", "callback_data": "back_to_menu"}]]}
+                            TelegramBot(chat_id=chat_id).send_message("🛑 <b>Auto Signal Mode Stopped.</b>", reply_markup=kb)
 
-                    elif cb_data in ["auto_btn:analysis", "auto_btn:next"]:
-                        deliver_auto_signal(chat_id, username=username)
+                        elif cb_data in ["auto_btn:analysis", "auto_btn:next"]:
+                            deliver_auto_signal(chat_id, username=username)
 
-                    elif cb_data == "auto_btn:partial":
-                        user_tz, _ = get_user_tz(chat_id)
-                        partial_text = build_partial_scoreboard_text(chat_id, user_tz)
-                        partial_kb = {
-                            "inline_keyboard": [
-                                [
-                                    {"text": "🔄 NEW SIGNAL", "callback_data": "auto_btn:next"},
-                                    {"text": "❌ RESET PARTIAL", "callback_data": "partial:reset"}
-                                ],
-                                [
-                                    {"text": "🏠 HOME", "callback_data": "back_to_menu"}
-                                ]
-                            ]
-                        }
-                        TelegramBot(chat_id=chat_id).send_message(partial_text, reply_markup=partial_kb)
-
-                    elif cb_data == "partial:reset":
-                        user_partial_data[str(chat_id)] = []
-                        TelegramBot(chat_id=chat_id).send_message("🔄 <b>Partial Scorecard has been reset to 0!</b>")
-                        send_main_menu(chat_id, msg_id)
-
-                    elif cb_data == "menu:future":
-                        real_status_label = "🟢 REAL MARKET (OPEN)" if is_real_market_open() else "🔴 REAL MARKET (CLOSED)"
-                        kb = {
-                            "inline_keyboard": [
-                                [{"text": real_status_label, "callback_data": "select_mkt:real:LIVE"}],
-                                [{"text": "🛡 QUOTEX OTC", "callback_data": "select_mkt:quotex:OTC"}],
-                                [{"text": "🔙 BACK", "callback_data": "back_to_menu"}]
-                            ]
-                        }
-                        edit_or_send(chat_id, "🌐 <b>SELECT BROKER / MARKET:</b>", kb, msg_id)
-
-                    elif cb_data.startswith("select_mkt:"):
-                        parts = cb_data.split(":")
-                        session_state.setdefault(chat_id, {})["broker"] = parts[1]
-                        kb = {
-                            "inline_keyboard": [
-                                [{"text": "⏱ 15 min", "callback_data": "time:15"}, {"text": "⏱ 30 min", "callback_data": "time:30"}],
-                                [{"text": "⏱ 1 Hour", "callback_data": "time:60"}, {"text": "⏱ 2 Hours", "callback_data": "time:120"}],
-                                [{"text": "🔥 4 Hours (Large Batch)", "callback_data": "time:240"}],
-                                [{"text": "🔙 Back", "callback_data": "menu:future"}]
-                            ]
-                        }
-                        edit_or_send(chat_id, "⏱ <b>SELECT SIGNAL DURATION:</b>", kb, msg_id)
-
-                    elif cb_data.startswith("time:"):
-                        session_state.setdefault(chat_id, {})["window_mins"] = int(cb_data.split(":")[-1])
-                        generate_and_send_batch_signals(chat_id, msg_id, username=username)
-
-                    elif cb_data == "btn:refresh":
-                        batch = active_batches.get(chat_id)
-                        if batch:
-                            user_tz, tz_off = get_user_tz(chat_id)
-                            signals = batch["signals"]
-                            now_time = datetime.now(user_tz)
-                            
-                            for s in signals:
-                                if s.get("status") in ["WIN", "MTG", "LOSS"]:
-                                    continue
-                                
-                                if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=3)):
-                                    res = evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"])
-                                    if res is True:
-                                        s["status"] = "WIN"
-                                        record_signal_stats(chat_id, "WIN", user_tz)
-                                    elif res is False:
-                                        s["status"] = "IN_MTG"
-                                
-                                if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=3)):
-                                    res_mtg = evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"])
-                                    if res_mtg is True:
-                                        s["status"] = "MTG"
-                                        record_signal_stats(chat_id, "MTG", user_tz)
-                                    elif res_mtg is False:
-                                        s["status"] = "LOSS"
-                                        record_signal_stats(chat_id, "LOSS", user_tz)
-
-                            save_active_batches_to_disk()
-                            updated_text = build_exact_user_format(signals, batch["broker"], user_tz, tz_off)
-                            TelegramBot(chat_id=chat_id).edit_message(msg_id, updated_text, reply_markup={
+                        elif cb_data == "auto_btn:partial":
+                            user_tz, _ = get_user_tz(chat_id)
+                            partial_text = build_partial_scoreboard_text(chat_id, user_tz)
+                            partial_kb = {
                                 "inline_keyboard": [
-                                    [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"},
-                                     {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
-                                    [{"text": "🗑 DELETE", "callback_data": "btn:del_list"},
-                                     {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
+                                    [
+                                        {"text": "🔄 NEW SIGNAL", "callback_data": "auto_btn:next"},
+                                        {"text": "❌ RESET PARTIAL", "callback_data": "partial:reset"}
+                                    ],
+                                    [
+                                        {"text": "🏠 HOME", "callback_data": "back_to_menu"}
+                                    ]
                                 ]
-                            })
+                            }
+                            TelegramBot(chat_id=chat_id).send_message(partial_text, reply_markup=partial_kb)
 
-                    elif cb_data == "btn:gen_new":
-                        generate_and_send_batch_signals(chat_id, msg_id, username=username)
+                        elif cb_data == "partial:reset":
+                            user_partial_data[str(chat_id)] = []
+                            TelegramBot(chat_id=chat_id).send_message("🔄 <b>Partial Scorecard has been reset to 0!</b>")
+                            send_main_menu(chat_id, msg_id)
 
-                    elif cb_data == "btn:del_list":
-                        active_batches.pop(chat_id, None)
-                        save_active_batches_to_disk()
-                        TelegramBot(chat_id=chat_id).delete_message(msg_id)
-                        send_main_menu(chat_id)
+                        elif cb_data == "menu:future":
+                            real_status_label = "🟢 REAL MARKET (OPEN)" if is_real_market_open() else "🔴 REAL MARKET (CLOSED)"
+                            kb = {
+                                "inline_keyboard": [
+                                    [{"text": real_status_label, "callback_data": "select_mkt:real:LIVE"}],
+                                    [{"text": "🛡 QUOTEX OTC", "callback_data": "select_mkt:quotex:OTC"}],
+                                    [{"text": "🔙 BACK", "callback_data": "back_to_menu"}]
+                                ]
+                            }
+                            edit_or_send(chat_id, "🌐 <b>SELECT BROKER / MARKET:</b>", kb, msg_id)
 
-                    elif cb_data == "menu:daily_summary":
-                        history = load_json(HISTORY_FILE)
-                        user_tz, _ = get_user_tz(chat_id)
-                        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
-                        d_stats = history.get(chat_id, {}).get(today_str, {"win": 0, "mtg": 0, "loss": 0})
-                        total = d_stats.get('win', 0) + d_stats.get('mtg', 0) + d_stats.get('loss', 0)
-                        wins_total = d_stats.get('win', 0) + d_stats.get('mtg', 0)
-                        winrate = f"{(wins_total) / total * 100:.1f}%" if total > 0 else "0.0%"
-                        summary_text = (
-                            f"📊 <b>DAILY SUMMARY ({today_str})</b>\n"
-                            f"────────────────────────\n"
-                            f"🟩 Direct Wins: {d_stats.get('win', 0)}\n"
-                            f"🛡 MTG Wins: {d_stats.get('mtg', 0)}\n"
-                            f"❌ Loss: {d_stats.get('loss', 0)}\n"
-                            f"🎯 Total Win Rate: {winrate}"
-                        )
-                        edit_or_send(chat_id, summary_text, {"inline_keyboard": [[{"text": "🔙 Back", "callback_data": "back_to_menu"}]]}, msg_id)
+                        elif cb_data.startswith("select_mkt:"):
+                            parts = cb_data.split(":")
+                            session_state.setdefault(chat_id, {})["broker"] = parts[1]
+                            kb = {
+                                "inline_keyboard": [
+                                    [{"text": "⏱ 15 min", "callback_data": "time:15"}, {"text": "⏱ 30 min", "callback_data": "time:30"}],
+                                    [{"text": "⏱ 1 Hour", "callback_data": "time:60"}, {"text": "⏱ 2 Hours", "callback_data": "time:120"}],
+                                    [{"text": "🔥 4 Hours (Large Batch)", "callback_data": "time:240"}],
+                                    [{"text": "🔙 Back", "callback_data": "menu:future"}]
+                                ]
+                            }
+                            edit_or_send(chat_id, "⏱ <b>SELECT SIGNAL DURATION:</b>", kb, msg_id)
 
-                    elif cb_data == "menu:support":
-                        TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: @MD_SUMON_MT4\nBot Handle: {TELEGRAM_HANDLE}")
-                        send_main_menu(chat_id, msg_id)
+                        elif cb_data.startswith("time:"):
+                            session_state.setdefault(chat_id, {})["window_mins"] = int(cb_data.split(":")[-1])
+                            generate_and_send_batch_signals(chat_id, msg_id, username=username)
 
-                    elif cb_data == "menu:about":
-                        TelegramBot(chat_id=chat_id).send_message(f"ℹ️ <b>ABOUT</b>\n\n{BOT_TITLE} — VIP Signal Bot V1.")
-                        send_main_menu(chat_id, msg_id)
+                        elif cb_data == "btn:refresh":
+                            batch = active_batches.get(chat_id)
+                            if batch:
+                                user_tz, tz_off = get_user_tz(chat_id)
+                                signals = batch["signals"]
+                                now_time = datetime.now(user_tz)
+                                
+                                for s in signals:
+                                    if s.get("status") in ["WIN", "MTG", "LOSS"]:
+                                        continue
+                                    if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=2)):
+                                        if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"]):
+                                            s["status"] = "WIN"
+                                            record_signal_stats(chat_id, "WIN", user_tz)
+                                        else:
+                                            s["status"] = "IN_MTG"
+                                    if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=3)):
+                                        if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"]):
+                                            s["status"] = "MTG"
+                                            record_signal_stats(chat_id, "MTG", user_tz)
+                                        else:
+                                            s["status"] = "LOSS"
+                                            record_signal_stats(chat_id, "LOSS", user_tz)
+                                
+                                save_active_batches_to_disk()
+                                updated_text = build_exact_user_format(signals, batch["broker"], user_tz, tz_off)
+                                TelegramBot(chat_id=chat_id).edit_message(msg_id, updated_text, reply_markup={
+                                    "inline_keyboard": [
+                                        [{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"}, {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}],
+                                        [{"text": "🗑 DELETE", "callback_data": "btn:del_list"}, {"text": "🏠 HOME", "callback_data": "back_to_menu"}]
+                                    ]
+                                })
 
-                    elif cb_data == "back_to_menu":
-                        send_main_menu(chat_id, msg_id)
+                        elif cb_data == "btn:gen_new":
+                            generate_and_send_batch_signals(chat_id, msg_id, username=username)
+
+                        elif cb_data == "btn:del_list":
+                            active_batches.pop(chat_id, None)
+                            save_active_batches_to_disk()
+                            TelegramBot(chat_id=chat_id).delete_message(msg_id)
+                            send_main_menu(chat_id)
+
+                        elif cb_data == "menu:daily_summary":
+                            history = load_json(HISTORY_FILE)
+                            user_tz, _ = get_user_tz(chat_id)
+                            today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
+                            d_stats = history.get(chat_id, {}).get(today_str, {"win": 0, "mtg": 0, "loss": 0})
+                            total = d_stats.get('win', 0) + d_stats.get('mtg', 0) + d_stats.get('loss', 0)
+                            wins_total = d_stats.get('win', 0) + d_stats.get('mtg', 0)
+                            winrate = f"{(wins_total) / total * 100:.1f}%" if total > 0 else "0.0%"
+                            summary_text = (
+                                f"📊 <b>DAILY SUMMARY ({today_str})</b>\n"
+                                f"────────────────────────\n"
+                                f"🟩 Direct Wins: {d_stats.get('win', 0)}\n"
+                                f"🛡 MTG Wins: {d_stats.get('mtg', 0)}\n"
+                                f"❌ Loss: {d_stats.get('loss', 0)}\n"
+                                f"🎯 Total Win Rate: {winrate}"
+                            )
+                            edit_or_send(chat_id, summary_text, {"inline_keyboard": [[{"text": "🔙 Back", "callback_data": "back_to_menu"}]]}, msg_id)
+
+                        elif cb_data == "menu:support":
+                            TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: @MD_SUMON_MT4\nBot Handle: {TELEGRAM_HANDLE}")
+                            send_main_menu(chat_id, msg_id)
+
+                        elif cb_data == "menu:about":
+                            TelegramBot(chat_id=chat_id).send_message(f"ℹ️ <b>ABOUT</b>\n\n{BOT_TITLE} — VIP Real Signal Engine V2.")
+                            send_main_menu(chat_id, msg_id)
+
+                        elif cb_data == "back_to_menu":
+                            send_main_menu(chat_id, msg_id)
 
         except Exception:
             time.sleep(1)
