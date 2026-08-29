@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — PURE OTC & STABLE RELEASE EDITION
+👑 MD SUMON TRADING BOT — PURE OTC & PERFECT MTG TIMING EDITION
 - Title & Branding: 👑 MD SUMON TRADING BOT 👑
 - Telegram Handle: @MD_SUMON_MT4
-- Focused Quotex OTC Engine (Real Market Disabled to Prevent Timeouts)
+- Strict MTG Candle Settle Engine & Global NTP Drift Fix
 """
 
 import os
@@ -47,7 +47,7 @@ threading.Thread(target=start_background_web_server, daemon=True).start()
 # ================= CONFIGURATION =================
 TELEGRAM_BOT_TOKEN = "8978217705:AAHkmibkUrAvnOMBGfplq_z_lMcPjpnzQBA"
 ADMIN_CHAT_ID = "7170071838"
-DEFAULT_TZ_OFFSET = 4  # UTC+4 (Permanent Default)
+DEFAULT_TZ_OFFSET = 4  # UTC+4 (Default)
 
 TELEGRAM_HANDLE = "@MD_SUMON_MT4"
 BOT_TITLE = "MD SUMON TRADING BOT"
@@ -62,7 +62,7 @@ ACTIVE_BATCHES_FILE = "active_batches.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1  # 1 Batch per day (10 signals)
 
-# Quotex OTC Assets List (Including your custom local & exotic pairs)
+# Quotex OTC Assets List
 QUOTEX_OTC_ASSETS = [
     "USDBDT_otc", "USDINR_otc", "USDPKR_otc", "USDTRY_otc", 
     "USDBRL_otc", "USDEGP_otc", "USDMXN_otc", "USDPHP_otc", 
@@ -89,7 +89,7 @@ _time_offset_cache = 0
 _last_sync_time = 0
 
 def get_synchronized_utc_now():
-    """উইন্ডোজ পিসির ঘড়ির ১-২ সেকেন্ড ল্যাগ ফিক্স করার জন্য গ্লোবাল সার্ভার টাইম সিঙ্ক"""
+    """গ্লোবাল সার্ভার থেকে টাইম সিঙ্ক করে ঘড়ির ১-২ সেকেন্ড ল্যাগ স্বয়ংক্রিয়ভাবে ফিক্স করা"""
     global _time_offset_cache, _last_sync_time
     curr_local_epoch = time.time()
     
@@ -268,7 +268,7 @@ def record_signal_stats(chat_id, status, user_tz):
             history[c_id][today_str]["loss"] += 1
         save_json(HISTORY_FILE, history)
 
-# ================= TELEGRAM COMMANDS & MENU BUTTON SETUP =================
+# ================= TELEGRAM COMMANDS & MENU SETUP =================
 def setup_telegram_commands():
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
@@ -542,12 +542,12 @@ def evaluate_primary_candle(pair, target_dt, direction):
 
     url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*"
     }
     for attempt in range(3):
         try:
-            response = requests.get(url, headers=headers, timeout=12)
+            response = requests.get(url, headers=headers, timeout=20)
             if response.status_code == 200:
                 candles = response.json()
                 matched_candle = None
@@ -573,12 +573,12 @@ def evaluate_mtg_candle(pair, target_dt, direction):
 
     url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*"
     }
     for attempt in range(3):
         try:
-            response = requests.get(url, headers=headers, timeout=12)
+            response = requests.get(url, headers=headers, timeout=20)
             if response.status_code == 200:
                 candles = response.json()
                 matched_candle = None
@@ -697,6 +697,7 @@ def auto_mode_loop(chat_id, username=None):
 
         sig_meta = deliver_auto_signal(chat_id, username=username)
         
+        # ১ম ক্যান্ডেল শেষ হওয়া পর্যন্ত অপেক্ষা (Entry + 1 min + 4 sec buffer)
         primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=4)
         while auto_mode_users.get(str(chat_id), False):
             curr_now = get_synchronized_utc_now().astimezone(user_tz)
@@ -708,23 +709,19 @@ def auto_mode_loop(chat_id, username=None):
             break
 
         primary_win = None
-        for _ in range(5):
+        for _ in range(3):
             primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
             if primary_win is not None:
                 break
             time.sleep(2)
 
-        if primary_win is None:
-            outcome_status = "LOSS"
-            header_badge = "🔴 🔴 🔴 - LOSS (NO DATA) 🔴 🔴 🔴"
-            res_val = "LOSS 🔴"
-            mtg_val = "FAILED"
-        elif primary_win:
+        if primary_win is True:
             outcome_status = "WIN"
             header_badge = "🟢 🟢 🟢 - WIN 🟢 🟢 🟢"
             res_val = "WIN 🟢"
             mtg_val = "NOT NEEDED"
         else:
+            # প্রাইমারি লস হলে বা ডেটা মিসিং হলেও মাস্ট ২য় ক্যান্ডেল (MTG) শেষ হওয়া পর্যন্ত অপেক্ষা করবে
             mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=4)
             while auto_mode_users.get(str(chat_id), False):
                 curr_now = get_synchronized_utc_now().astimezone(user_tz)
@@ -736,7 +733,7 @@ def auto_mode_loop(chat_id, username=None):
                 break
 
             mtg_win = None
-            for _ in range(5):
+            for _ in range(4):
                 mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
                 if mtg_win is not None:
                     break
@@ -747,9 +744,14 @@ def auto_mode_loop(chat_id, username=None):
                 header_badge = "🟡 🟡 🟡 - MTG WIN 🟡 🟡 🟡"
                 res_val = "MTG WIN 🟢¹"
                 mtg_val = "1 STEP USED"
-            else:
+            elif mtg_win is False:
                 outcome_status = "LOSS"
                 header_badge = "🔴 🔴 🔴 - LOSS 🔴 🔴 🔴"
+                res_val = "LOSS 🔴"
+                mtg_val = "FAILED"
+            else:
+                outcome_status = "LOSS"
+                header_badge = "🔴 🔴 🔴 - LOSS (NO DATA) 🔴 🔴 🔴"
                 res_val = "LOSS 🔴"
                 mtg_val = "FAILED"
 
@@ -884,7 +886,7 @@ def continuous_background_scanner(chat_id, batch_data):
                     s["status"] = "WIN"
                     record_signal_stats(chat_id, "WIN", user_tz)
                     state_changed = True
-                elif res is False:
+                else:
                     s["status"] = "IN_MTG"
                     state_changed = True
 
@@ -1330,7 +1332,6 @@ def run_server():
                         send_main_menu(chat_id, msg_id)
 
                     elif cb_data == "menu:future":
-                        # সরাসরি ওটিসি লিস্ট জেনারেট করার জন্য ফিউচার মোড ফিক্সড করা হলো
                         session_state.setdefault(chat_id, {})["window_mins"] = 240
                         generate_and_send_batch_signals(chat_id, msg_id, username=username)
 
@@ -1350,7 +1351,7 @@ def run_server():
                                     if res is True:
                                         s["status"] = "WIN"
                                         record_signal_stats(chat_id, "WIN", user_tz)
-                                    elif res is False:
+                                    else:
                                         s["status"] = "IN_MTG"
                                 
                                 if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=4)):
