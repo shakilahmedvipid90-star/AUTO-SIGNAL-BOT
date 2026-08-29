@@ -46,7 +46,7 @@ def start_background_web_server():
 threading.Thread(target=start_background_web_server, daemon=True).start()
 
 # ================= CONFIGURATION =================
-TELEGRAM_BOT_TOKEN = "8868069471:AAFRuXL3N3zX8EegNnfRHywHELM_SbiYj5U"
+TELEGRAM_BOT_TOKEN = "8978217705:AAHkmibkUrAvnOMBGfplq_z_lMcPjpnzQBA"
 ADMIN_CHAT_ID = "7170071838"
 DEFAULT_TZ_OFFSET = 4  # UTC+4 (Permanent Default)
 
@@ -637,7 +637,7 @@ def evaluate_mtg_candle(pair, target_dt, direction):
                 row_dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
                 if int(row_dt.astimezone(timezone.utc).timestamp() // 60) * 60 == target_utc_epoch:
                     mo, mc = float(row['Open']), float(row['Close'])
-                    return (mc > mo) if direction == "CALL" else (mc < mo)
+                    return (mc > mo) if direction == "CALL" else (mc < mc)
     except Exception:
         pass
 
