@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — PURE OTC & PERFECT MTG TIMING EDITION
+👑 MD SUMON TRADING BOT — OFFICIAL RELEASE EDITION (SEPARATED DATA ENGINE)
 - Title & Branding: 👑 MD SUMON TRADING BOT 👑
 - Telegram Handle: @MD_SUMON_MT4
-- Strict MTG Candle Settle Engine & Global NTP Drift Fix
+- Live xcharts.live API for OTC & yfinance for Real Market
 """
 
 import os
@@ -16,6 +16,7 @@ import threading
 import requests
 import warnings
 import numpy as np
+import yfinance as yf
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -45,9 +46,9 @@ def start_background_web_server():
 threading.Thread(target=start_background_web_server, daemon=True).start()
 
 # ================= CONFIGURATION =================
-TELEGRAM_BOT_TOKEN = "8978217705:AAHkmibkUrAvnOMBGfplq_z_lMcPjpnzQBA"
+TELEGRAM_BOT_TOKEN = "8868069471:AAFRuXL3N3zX8EegNnfRHywHELM_SbiYj5U"
 ADMIN_CHAT_ID = "7170071838"
-DEFAULT_TZ_OFFSET = 4  # UTC+4 (Default)
+DEFAULT_TZ_OFFSET = 4  # UTC+4 (Permanent Default)
 
 TELEGRAM_HANDLE = "@MD_SUMON_MT4"
 BOT_TITLE = "MD SUMON TRADING BOT"
@@ -62,7 +63,7 @@ ACTIVE_BATCHES_FILE = "active_batches.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1  # 1 Batch per day (10 signals)
 
-# Quotex OTC Assets List
+# Quotex OTC Assets List (Including your custom local & exotic pairs)
 QUOTEX_OTC_ASSETS = [
     "USDBDT_otc", "USDINR_otc", "USDPKR_otc", "USDTRY_otc", 
     "USDBRL_otc", "USDEGP_otc", "USDMXN_otc", "USDPHP_otc", 
@@ -70,6 +71,14 @@ QUOTEX_OTC_ASSETS = [
     "NZDCHF_otc", "USDCOP_otc", "USDNGN_otc", "USDARS_otc", 
     "USDDZD_otc", "CADCHF_otc", "GBPNZD_otc", "NZDCAD_otc", 
     "NZDJPY_otc", "EURNZD_otc", "NZDUSD_otc"
+]
+
+# 20 Real Forex Pairs
+LIVE_REAL_PAIRS = [
+    "EURGBP", "CADJPY", "EURJPY", "EURUSD", "GBPJPY",
+    "GBPUSD", "AUDJPY", "EURCAD", "USDJPY", "AUDCAD",
+    "AUDCHF", "EURAUD", "GBPCAD", "GBPAUD", "AUDUSD",
+    "GBPCHF", "CHFJPY", "EURCHF", "USDCAD", "USDCHF"
 ]
 
 user_active_menu_msg = {}
@@ -84,29 +93,6 @@ telegram_msg_lock = threading.Lock()
 usage_lock = threading.Lock()
 batch_disk_lock = threading.Lock()
 
-# ================= ABSOLUTE TIME DRIFT CORRECTION ENGINE =================
-_time_offset_cache = 0
-_last_sync_time = 0
-
-def get_synchronized_utc_now():
-    """গ্লোবাল সার্ভার থেকে টাইম সিঙ্ক করে ঘড়ির ১-২ সেকেন্ড ল্যাগ স্বয়ংক্রিয়ভাবে ফিক্স করা"""
-    global _time_offset_cache, _last_sync_time
-    curr_local_epoch = time.time()
-    
-    if curr_local_epoch - _last_sync_time > 600:
-        try:
-            resp = requests.get("https://worldtimeapi.org/api/timezone/Etc/UTC", timeout=3)
-            if resp.status_code == 200:
-                server_epoch = resp.json().get("unixtime")
-                if server_epoch:
-                    _time_offset_cache = server_epoch - curr_local_epoch
-                    _last_sync_time = curr_local_epoch
-        except Exception:
-            pass
-            
-    corrected_epoch = curr_local_epoch + _time_offset_cache
-    return datetime.fromtimestamp(corrected_epoch, tz=timezone.utc)
-
 # ================= HELPER FUNCTIONS =================
 def format_pair_name(pair_raw):
     raw = str(pair_raw).strip()
@@ -114,6 +100,20 @@ def format_pair_name(pair_raw):
         base = raw.lower().replace("_otc", "").upper()
         return f"{base}_otc"
     return raw.upper()
+
+def is_real_market_open():
+    """Checks if Real Forex Market is Open (Closes Fri 21:00 UTC, Opens Sun 21:00 UTC)."""
+    utc_now = datetime.now(timezone.utc)
+    weekday = utc_now.weekday()
+    hour = utc_now.hour
+
+    if weekday == 5:  # Saturday -> Closed
+        return False
+    elif weekday == 6 and hour < 21:  # Sunday before 21:00 UTC -> Closed
+        return False
+    elif weekday == 4 and hour >= 21:  # Friday after 21:00 UTC -> Closed
+        return False
+    return True
 
 # ================= STORAGE & USER MANAGEMENT =================
 def load_json(filepath):
@@ -214,14 +214,14 @@ def load_and_resume_active_batches():
 def get_user_daily_usage(chat_id, user_tz):
     with usage_lock:
         data = load_json(USAGE_FILE)
-        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
         c_id = str(chat_id)
         return data.get(c_id, {}).get(today_str, 0)
 
 def increment_user_daily_usage(chat_id, user_tz):
     with usage_lock:
         data = load_json(USAGE_FILE)
-        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
         c_id = str(chat_id)
         if c_id not in data:
             data[c_id] = {}
@@ -233,14 +233,14 @@ def increment_user_daily_usage(chat_id, user_tz):
 def get_future_daily_usage(chat_id, user_tz):
     with usage_lock:
         data = load_json(USAGE_FILE)
-        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
         c_id = str(chat_id)
         return data.get(c_id, {}).get(f"{today_str}_future", 0)
 
 def increment_future_daily_usage(chat_id, user_tz):
     with usage_lock:
         data = load_json(USAGE_FILE)
-        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
         c_id = str(chat_id)
         key = f"{today_str}_future"
         if c_id not in data:
@@ -253,7 +253,7 @@ def increment_future_daily_usage(chat_id, user_tz):
 def record_signal_stats(chat_id, status, user_tz):
     with history_lock:
         history = load_json(HISTORY_FILE)
-        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
         c_id = str(chat_id)
         if c_id not in history:
             history[c_id] = {}
@@ -268,7 +268,7 @@ def record_signal_stats(chat_id, status, user_tz):
             history[c_id][today_str]["loss"] += 1
         save_json(HISTORY_FILE, history)
 
-# ================= TELEGRAM COMMANDS & MENU SETUP =================
+# ================= TELEGRAM COMMANDS & MENU BUTTON SETUP =================
 def setup_telegram_commands():
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
@@ -499,7 +499,7 @@ def get_session_stats(chat_id):
 def build_partial_scoreboard_text(chat_id, user_tz):
     c_id = str(chat_id)
     history = user_partial_data.get(c_id, [])
-    now_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y.%m.%d")
+    now_str = datetime.now(user_tz).strftime("%Y.%m.%d")
     
     total = len(history)
     wins = 0
@@ -535,19 +535,29 @@ def build_partial_scoreboard_text(chat_id, user_tz):
     )
     return text
 
-# ================= 3. PURE OTC STABLE CANDLE EVALUATORS =================
+# ================= 3. SEPARATED DATA EVALUATORS (OTC -> XCHARTS, REAL -> YFINANCE) =================
+def get_server_epoch_time():
+    try:
+        resp = requests.get("https://worldtimeapi.org/api/timezone/Etc/UTC", timeout=2)
+        if resp.status_code == 200:
+            return int(resp.json().get("unixtime", time.time()))
+    except Exception:
+        pass
+    return int(datetime.now(timezone.utc).timestamp())
+
 def evaluate_primary_candle(pair, target_dt, direction):
     clean = pair.strip().replace("/", "").replace(" ", "").upper()
     target_utc_epoch = int(target_dt.astimezone(timezone.utc).timestamp() // 60) * 60
 
-    url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
-    }
-    for attempt in range(3):
+    # OTC -> xcharts.live ONLY
+    if "_otc" in clean.lower():
         try:
-            response = requests.get(url, headers=headers, timeout=20)
+            url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json, text/plain, */*"
+            }
+            response = requests.get(url, headers=headers, timeout=5)
             if response.status_code == 200:
                 candles = response.json()
                 matched_candle = None
@@ -563,22 +573,40 @@ def evaluate_primary_candle(pair, target_dt, direction):
                     pc = float(matched_candle['close'])
                     return (pc > po) if direction == "CALL" else (pc < po)
         except Exception as e:
-            print(f"⚠️ Live OTC Primary API Attempt {attempt+1} Error: {e}")
-            time.sleep(2)
+            print(f"⚠️ OTC Live Candle Fetch Error ({clean}): {e}")
+        return None
+
+    # Real Market -> yfinance ONLY
+    try:
+        clean_pair = clean + "=X"
+        target_utc = target_dt.astimezone(timezone.utc)
+        df = yf.download(clean_pair, start=target_utc - timedelta(minutes=2), end=target_utc + timedelta(minutes=3), interval="1m", progress=False)
+        if df is not None and not df.empty:
+            if hasattr(df.columns, 'levels') and len(df.columns.levels) > 1:
+                df.columns = df.columns.get_level_values(0)
+            for idx, row in df.iterrows():
+                row_dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+                if int(row_dt.astimezone(timezone.utc).timestamp() // 60) * 60 == target_utc_epoch:
+                    po, pc = float(row['Open']), float(row['Close'])
+                    return (pc > po) if direction == "CALL" else (pc < po)
+    except Exception:
+        pass
+
     return None
 
 def evaluate_mtg_candle(pair, target_dt, direction):
     clean = pair.strip().replace("/", "").replace(" ", "").upper()
     target_utc_epoch = int(target_dt.astimezone(timezone.utc).timestamp() // 60) * 60 + 60
 
-    url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
-    }
-    for attempt in range(3):
+    # OTC -> xcharts.live ONLY
+    if "_otc" in clean.lower():
         try:
-            response = requests.get(url, headers=headers, timeout=20)
+            url = f"https://xcharts.live/quotex/?symbol={clean}&interval=60"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json, text/plain, */*"
+            }
+            response = requests.get(url, headers=headers, timeout=5)
             if response.status_code == 200:
                 candles = response.json()
                 matched_candle = None
@@ -588,20 +616,37 @@ def evaluate_mtg_candle(pair, target_dt, direction):
                         matched_candle = c
                         if c_time == target_utc_epoch:
                             break
-                    
+                
                 if matched_candle:
                     mo = float(matched_candle['open'])
                     mc = float(matched_candle['close'])
                     return (mc > mo) if direction == "CALL" else (mc < mo)
         except Exception as e:
-            print(f"⚠️ Live OTC MTG API Attempt {attempt+1} Error: {e}")
-            time.sleep(2)
+            print(f"⚠️ OTC MTG Candle Fetch Error ({clean}): {e}")
+        return None
+
+    # Real Market -> yfinance ONLY
+    try:
+        clean_pair = clean + "=X"
+        target_utc = target_dt.astimezone(timezone.utc)
+        df = yf.download(clean_pair, start=target_utc - timedelta(minutes=1), end=target_utc + timedelta(minutes=4), interval="1m", progress=False)
+        if df is not None and not df.empty:
+            if hasattr(df.columns, 'levels') and len(df.columns.levels) > 1:
+                df.columns = df.columns.get_level_values(0)
+            for idx, row in df.iterrows():
+                row_dt = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else idx
+                if int(row_dt.astimezone(timezone.utc).timestamp() // 60) * 60 == target_utc_epoch:
+                    mo, mc = float(row['Open']), float(row['Close'])
+                    return (mc > mo) if direction == "CALL" else (mc < mo)
+    except Exception:
+        pass
+
     return None
 
 # ================= 4. DYNAMIC AUTO SIGNAL DISPATCHER =================
 def deliver_auto_signal(chat_id, pair=None, username=None):
     user_tz, tz_offset = get_user_tz(chat_id)
-    now_dt = get_synchronized_utc_now().astimezone(user_tz)
+    now_dt = datetime.now(user_tz)
     
     is_vip = is_vip_user(chat_id, username)
     current_count = increment_user_daily_usage(chat_id, user_tz)
@@ -697,10 +742,9 @@ def auto_mode_loop(chat_id, username=None):
 
         sig_meta = deliver_auto_signal(chat_id, username=username)
         
-        # ১ম ক্যান্ডেল শেষ হওয়া পর্যন্ত অপেক্ষা (Entry + 1 min + 4 sec buffer)
-        primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=4)
+        primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=3)
         while auto_mode_users.get(str(chat_id), False):
-            curr_now = get_synchronized_utc_now().astimezone(user_tz)
+            curr_now = datetime.now(user_tz)
             if curr_now >= primary_settle_dt:
                 break
             time.sleep(1)
@@ -708,23 +752,17 @@ def auto_mode_loop(chat_id, username=None):
         if not auto_mode_users.get(str(chat_id), False):
             break
 
-        primary_win = None
-        for _ in range(3):
-            primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
-            if primary_win is not None:
-                break
-            time.sleep(2)
-
+        primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
+        
         if primary_win is True:
             outcome_status = "WIN"
             header_badge = "🟢 🟢 🟢 - WIN 🟢 🟢 🟢"
             res_val = "WIN 🟢"
             mtg_val = "NOT NEEDED"
         else:
-            # প্রাইমারি লস হলে বা ডেটা মিসিং হলেও মাস্ট ২য় ক্যান্ডেল (MTG) শেষ হওয়া পর্যন্ত অপেক্ষা করবে
-            mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=4)
+            mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=3)
             while auto_mode_users.get(str(chat_id), False):
-                curr_now = get_synchronized_utc_now().astimezone(user_tz)
+                curr_now = datetime.now(user_tz)
                 if curr_now >= mtg_settle_dt:
                     break
                 time.sleep(1)
@@ -732,26 +770,15 @@ def auto_mode_loop(chat_id, username=None):
             if not auto_mode_users.get(str(chat_id), False):
                 break
 
-            mtg_win = None
-            for _ in range(4):
-                mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
-                if mtg_win is not None:
-                    break
-                time.sleep(2)
-
+            mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
             if mtg_win is True:
                 outcome_status = "MTG"
                 header_badge = "🟡 🟡 🟡 - MTG WIN 🟡 🟡 🟡"
                 res_val = "MTG WIN 🟢¹"
                 mtg_val = "1 STEP USED"
-            elif mtg_win is False:
-                outcome_status = "LOSS"
-                header_badge = "🔴 🔴 🔴 - LOSS 🔴 🔴 🔴"
-                res_val = "LOSS 🔴"
-                mtg_val = "FAILED"
             else:
                 outcome_status = "LOSS"
-                header_badge = "🔴 🔴 🔴 - LOSS (NO DATA) 🔴 🔴 🔴"
+                header_badge = "🔴 🔴 🔴 - LOSS 🔴 🔴 🔴"
                 res_val = "LOSS 🔴"
                 mtg_val = "FAILED"
 
@@ -796,9 +823,9 @@ def auto_mode_loop(chat_id, username=None):
                 break
             time.sleep(1)
 
-# ================= 5. FUTURE SIGNAL BATCH ENGINE =================
-def build_exact_user_format(signals, broker_name="QUOTEX OTC", user_tz=None, tz_offset=4):
-    now_dt = get_synchronized_utc_now().astimezone(user_tz)
+# ================= 5. FUTURE SIGNAL BATCH ENGINE (LIVE ACCURATE VERIFICATION) =================
+def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz_offset=4):
+    now_dt = datetime.now(user_tz)
     date_str = now_dt.strftime("%d.%m.%Y")
     sign = "+" if tz_offset >= 0 else ""
     tz_label = f"UTC {sign}{tz_offset}:00"
@@ -848,7 +875,7 @@ def build_exact_user_format(signals, broker_name="QUOTEX OTC", user_tz=None, tz_
     footer = (
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📈 <b>Stats:</b> ✅ {win_count} WIN | 🛡 {mtg_count} MTG | ❌ {loss_count} LOSS | ⏳ {pending_count} Pending\n\n"
-        f"⚡ <b>Quotex OTC Checking: ACTIVE 🟢</b>\n\n"
+        f"⚡ <b>Quotex Live Auto-Checking: ACTIVE 🟢</b>\n\n"
         f"❗️ <b>USE SAFETY MARGIN MUST ❗️</b>\n\n"
         f"<b>FEEDBACK :</b> {TELEGRAM_HANDLE} ✅"
     )
@@ -863,7 +890,7 @@ def continuous_background_scanner(chat_id, batch_data):
     bot_instance = TelegramBot(chat_id=chat_id)
 
     while True:
-        now_time = get_synchronized_utc_now().astimezone(user_tz)
+        now_time = datetime.now(user_tz)
         has_pending = False
         state_changed = False
 
@@ -876,29 +903,26 @@ def continuous_background_scanner(chat_id, batch_data):
             has_pending = True
 
             if current_status == "PENDING" and now_time >= s["target_dt"]:
-                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=4)):
+                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=3)):
                     s["status"] = "LIVE"
                     state_changed = True
 
-            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=4)):
+            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=3)):
                 res = evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"])
                 if res is True:
                     s["status"] = "WIN"
                     record_signal_stats(chat_id, "WIN", user_tz)
                     state_changed = True
-                else:
+                elif res is False:
                     s["status"] = "IN_MTG"
                     state_changed = True
 
-            if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=4)):
+            if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=3)):
                 res_mtg = evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"])
                 if res_mtg is True:
                     s["status"] = "MTG"
                     record_signal_stats(chat_id, "MTG", user_tz)
                 elif res_mtg is False:
-                    s["status"] = "LOSS"
-                    record_signal_stats(chat_id, "LOSS", user_tz)
-                else:
                     s["status"] = "LOSS"
                     record_signal_stats(chat_id, "LOSS", user_tz)
                 state_changed = True
@@ -924,7 +948,7 @@ def generate_large_signal_batch(pairs, user_tz, duration_mins=240, is_vip=False)
     signals = []
     if not pairs:
         return []
-    start_time = get_synchronized_utc_now().astimezone(user_tz) + timedelta(minutes=2)
+    start_time = datetime.now(user_tz) + timedelta(minutes=2)
     
     if not is_vip:
         num_signals = 10
@@ -987,17 +1011,17 @@ def run_server():
             f"│ 👑 <b>{BOT_TITLE}</b> 👑\n"
             "│  — Next-Gen Signal System —\n"
             "╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
-            "⚡ <b>CORE ENGINE:</b> Strict Quotex OTC Math 🤖\n"
+            "⚡ <b>CORE ENGINE:</b> Strict Quotex Price Math 🤖\n"
             "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡\n"
             "🚀 <b>ALGORITHM:</b> Pure Price Action Verification 🧠\n"
             "🛡 <b>RISK CONTROL:</b> Smart Filters & Martingale Protection 🔒\n"
-            "🌐 <b>MARKETS:</b> Quotex OTC Pairs Only 📊\n"
+            "🌐 <b>MARKETS:</b> Real Market & Quotex OTC Pairs 📊\n"
             "⚙ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n"
-            "📡 <b>DATA QUALITY:</b> NTP Drift-Free API Feeds ⚡\n\n"
+            "📡 <b>DATA QUALITY:</b> Direct WebSocket Feeds ⚡\n\n"
             "────────────────────────\n"
             f"<b>WHY CHOOSE {BOT_TITLE}:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Continuous Live Auto-Checking (OTC)\n"
+            "🎯 Continuous Live Auto-Checking (OTC & Real)\n"
             "🛡 Advanced Risk Shielding\n"
             "🔮 Future Signal Generator Mode\n"
             "────────────────────────\n\n"
@@ -1084,12 +1108,15 @@ def run_server():
 
         st = session_state.get(str(chat_id), {})
         mins = int(st.get("window_mins", 240))
-        broker_label = "QUOTEX OTC"
+        broker_key = st.get("broker", "real")
+        
+        broker_label = "REAL MARKET" if broker_key == "real" else "QUOTEX OTC"
         
         loading_msg_id = bot_instance.send_message("╭━━━━━━━━━━━━━━━━━━━━╮\n  🧠 <b>GENERATING VIP BATCH</b> 🔮\n╰━━━━━━━━━━━━━━━━━━━━╯")
         time.sleep(0.4)
         
-        signals = generate_large_signal_batch(QUOTEX_OTC_ASSETS, user_tz=user_tz, duration_mins=mins, is_vip=is_vip)
+        pairs_list = LIVE_REAL_PAIRS if broker_key == "real" else QUOTEX_OTC_ASSETS
+        signals = generate_large_signal_batch(pairs_list, user_tz=user_tz, duration_mins=mins, is_vip=is_vip)
         signal_text = build_exact_user_format(signals, broker_label, user_tz, tz_offset)
         
         if loading_msg_id:
@@ -1123,7 +1150,7 @@ def run_server():
 
     load_and_resume_active_batches()
 
-    print(f"🚀 {BOT_TITLE} Master VIP OTC Engine is LIVE!")
+    print(f"🚀 {BOT_TITLE} Master VIP Engine is LIVE!")
 
     while True:
         try:
@@ -1332,7 +1359,31 @@ def run_server():
                         send_main_menu(chat_id, msg_id)
 
                     elif cb_data == "menu:future":
-                        session_state.setdefault(chat_id, {})["window_mins"] = 240
+                        real_status_label = "🟢 REAL MARKET (OPEN)" if is_real_market_open() else "🔴 REAL MARKET (CLOSED)"
+                        kb = {
+                            "inline_keyboard": [
+                                [{"text": real_status_label, "callback_data": "select_mkt:real:LIVE"}],
+                                [{"text": "🛡 QUOTEX OTC", "callback_data": "select_mkt:quotex:OTC"}],
+                                [{"text": "🔙 BACK", "callback_data": "back_to_menu"}]
+                            ]
+                        }
+                        edit_or_send(chat_id, "🌐 <b>SELECT BROKER / MARKET:</b>", kb, msg_id)
+
+                    elif cb_data.startswith("select_mkt:"):
+                        parts = cb_data.split(":")
+                        session_state.setdefault(chat_id, {})["broker"] = parts[1]
+                        kb = {
+                            "inline_keyboard": [
+                                [{"text": "⏱ 15 min", "callback_data": "time:15"}, {"text": "⏱ 30 min", "callback_data": "time:30"}],
+                                [{"text": "⏱ 1 Hour", "callback_data": "time:60"}, {"text": "⏱ 2 Hours", "callback_data": "time:120"}],
+                                [{"text": "🔥 4 Hours (Large Batch)", "callback_data": "time:240"}],
+                                [{"text": "🔙 Back", "callback_data": "menu:future"}]
+                            ]
+                        }
+                        edit_or_send(chat_id, "⏱ <b>SELECT SIGNAL DURATION:</b>", kb, msg_id)
+
+                    elif cb_data.startswith("time:"):
+                        session_state.setdefault(chat_id, {})["window_mins"] = int(cb_data.split(":")[-1])
                         generate_and_send_batch_signals(chat_id, msg_id, username=username)
 
                     elif cb_data == "btn:refresh":
@@ -1340,29 +1391,26 @@ def run_server():
                         if batch:
                             user_tz, tz_off = get_user_tz(chat_id)
                             signals = batch["signals"]
-                            now_time = get_synchronized_utc_now().astimezone(user_tz)
+                            now_time = datetime.now(user_tz)
                             
                             for s in signals:
                                 if s.get("status") in ["WIN", "MTG", "LOSS"]:
                                     continue
                                 
-                                if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=4)):
+                                if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=3)):
                                     res = evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"])
                                     if res is True:
                                         s["status"] = "WIN"
                                         record_signal_stats(chat_id, "WIN", user_tz)
-                                    else:
+                                    elif res is False:
                                         s["status"] = "IN_MTG"
                                 
-                                if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=4)):
+                                if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=3)):
                                     res_mtg = evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"])
                                     if res_mtg is True:
                                         s["status"] = "MTG"
                                         record_signal_stats(chat_id, "MTG", user_tz)
                                     elif res_mtg is False:
-                                        s["status"] = "LOSS"
-                                        record_signal_stats(chat_id, "LOSS", user_tz)
-                                    else:
                                         s["status"] = "LOSS"
                                         record_signal_stats(chat_id, "LOSS", user_tz)
 
@@ -1389,7 +1437,7 @@ def run_server():
                     elif cb_data == "menu:daily_summary":
                         history = load_json(HISTORY_FILE)
                         user_tz, _ = get_user_tz(chat_id)
-                        today_str = get_synchronized_utc_now().astimezone(user_tz).strftime("%Y-%m-%d")
+                        today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
                         d_stats = history.get(chat_id, {}).get(today_str, {"win": 0, "mtg": 0, "loss": 0})
                         total = d_stats.get('win', 0) + d_stats.get('mtg', 0) + d_stats.get('loss', 0)
                         wins_total = d_stats.get('win', 0) + d_stats.get('mtg', 0)
