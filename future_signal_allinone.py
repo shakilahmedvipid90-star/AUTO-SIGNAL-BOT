@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (ADMIN PANEL & MAINTENANCE SYSTEM)
-- Dual State Control: /maintenance, /active & Admin Menu Button Controls
-- Instant Broadcast: Alerts all registered users instantly on server status changes
-- Luxury VIP 3-Style UI:
-    1. Radar Scanner Active Card
-    2. Execution Ticket Card
-    3. Golden Trophy Result Card (Live Score & Accuracy Calculation)
-- Schedule Mode: Automated channel session worker with 30m alerts & Partial Scorecard
-- Strict Candlestick Engine: 3-attempt retry loop with exact UTC timestamp & 59s matching window
+👑 MD SUMON TRADING BOT — OFFICIAL ENGINE
+- Scoped Commands: Default users only see /start; admin controls isolated
+- Interactive Inline Buttons: Ultra-responsive callback handler
+- Full Features: Live Analysis, Luxury UI, MTG Engine, Schedule Mode
 """
 
 import os
@@ -39,7 +34,6 @@ class RenderHealthServer(BaseHTTPRequestHandler):
 def start_background_web_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), RenderHealthServer)
-    print(f"🌍 Web server successfully bound to port {port} for Hosting.")
     server.serve_forever()
 
 threading.Thread(target=start_background_web_server, daemon=True).start()
@@ -196,8 +190,8 @@ def fetch_live_candle_xcharts(pair_raw, target_dt):
                         "high": float(best_match.get("high")),
                         "low": float(best_match.get("low"))
                     }
-        except Exception as e:
-            print(f"⚠️ [RETRY {attempt+1}] Xcharts API Error: {e}")
+        except Exception:
+            pass
         time.sleep(1.2)
         
     return None
@@ -219,7 +213,7 @@ def evaluate_mtg_candle(pair, target_dt, direction):
         return (cl > op) if direction in ["CALL", "BUY"] else (cl < op)
     return random.choice([True, False])
 
-# ================= HELPER FUNCTIONS & STORAGE =================
+# ================= STORAGE & HELPERS =================
 def format_pair_name(pair_raw):
     raw = str(pair_raw).strip()
     if "_otc" in raw.lower():
@@ -260,9 +254,6 @@ def load_vip_users():
     if not data:
         return [str(ADMIN_CHAT_ID)]
     return [str(u).lower().strip("@") for u in data.get("allowed_users", [str(ADMIN_CHAT_ID)])]
-
-def save_vip_users(users):
-    save_json(USERS_FILE, {"allowed_users": users})
 
 def is_vip_user(chat_id, username=None):
     if str(chat_id) == str(ADMIN_CHAT_ID):
@@ -309,7 +300,6 @@ def load_and_resume_active_batches():
         data = load_json(ACTIVE_BATCHES_FILE)
         if not data:
             return
-        resumed_count = 0
         for c_id, b in data.items():
             signals = []
             for s in b.get("signals", []):
@@ -324,9 +314,6 @@ def load_and_resume_active_batches():
             active_batches[c_id] = b
             if any(s.get("status") in ["PENDING", "IN_MTG"] for s in signals):
                 threading.Thread(target=continuous_background_scanner, args=(c_id, b), daemon=True).start()
-                resumed_count += 1
-        if resumed_count > 0:
-            print(f"🔄 [AUTO-RESUME] Restored {resumed_count} active Batches!")
 
 def get_user_daily_usage(chat_id, user_tz):
     with usage_lock:
@@ -382,17 +369,28 @@ def record_signal_stats(chat_id, status, user_tz):
             history[c_id][today_str]["loss"] += 1
         save_json(HISTORY_FILE, history)
 
-# ================= TELEGRAM WRAPPER =================
+# ================= TELEGRAM SCOPED COMMANDS =================
 def setup_telegram_commands():
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
-        requests.post(f"{base}/setChatMenuButton", data={"menu_button": json.dumps({"type": "commands"})}, timeout=5)
-        default_commands = [
+        # Clear Default Menu to Only Show /start for Regular Users
+        default_commands = [{"command": "start", "description": "Launch Trading Bot"}]
+        requests.post(
+            f"{base}/setMyCommands",
+            json={"commands": default_commands, "scope": {"type": "default"}},
+            timeout=5
+        )
+        # Dedicated Admin Chat Menu
+        admin_commands = [
             {"command": "start", "description": "Launch Trading Bot"},
-            {"command": "active", "description": "Admin: Turn Server Online"},
-            {"command": "maintenance", "description": "Admin: Turn Maintenance Mode On"}
+            {"command": "active", "description": "Turn Server Online"},
+            {"command": "maintenance", "description": "Turn Maintenance Mode On"}
         ]
-        requests.post(f"{base}/setMyCommands", data={"commands": json.dumps(default_commands), "scope": json.dumps({"type": "default"})}, timeout=5)
+        requests.post(
+            f"{base}/setMyCommands",
+            json={"commands": admin_commands, "scope": {"type": "chat", "chat_id": int(ADMIN_CHAT_ID)}},
+            timeout=5
+        )
     except Exception:
         pass
 
@@ -486,7 +484,7 @@ def build_partial_scoreboard_text(chat_id, user_tz):
         f"────────── . ──────────</blockquote>"
     )
 
-# ================= 3 LUXURY VIP CARD BUILDERS =================
+# ================= LUXURY VIP CARD BUILDERS =================
 def build_radar_scanner_card(clean_pair, confidence, tz_str):
     return (
         f"<blockquote>📡 <b>MARKET SCANNER ACTIVE</b>\n"
@@ -647,7 +645,6 @@ def auto_mode_loop(chat_id, username=None):
 
         sig_meta = deliver_auto_signal(c_id, username=username)
         
-        # 1. Primary trade expiry (+5 sec buffer)
         primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=5)
         while auto_mode_users.get(c_id, False):
             if datetime.now(user_tz) >= primary_settle_dt:
@@ -661,7 +658,6 @@ def auto_mode_loop(chat_id, username=None):
         if primary_win:
             outcome_status = "WIN"
         else:
-            # 2. MTG trade expiry (+5 sec buffer)
             mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=5)
             while auto_mode_users.get(c_id, False):
                 if datetime.now(user_tz) >= mtg_settle_dt:
@@ -672,12 +668,8 @@ def auto_mode_loop(chat_id, username=None):
                 break
                 
             mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
-            if mtg_win:
-                outcome_status = "MTG"
-            else:
-                outcome_status = "LOSS"
+            outcome_status = "MTG" if mtg_win else "LOSS"
 
-        # Record and Build Golden Trophy Result Card
         record_to_partial(c_id, {
             "time": sig_meta["entry_str"],
             "pair": format_pair_name(sig_meta["pair_raw"]),
@@ -964,7 +956,6 @@ def run_server():
             [{"text": "💬 SUPPORT", "callback_data": "menu:support"}, {"text": "❕ ABOUT", "callback_data": "menu:about"}],
         ]
         
-        # Dedicated Admin Control Button in Menu
         if is_admin:
             keyboard_buttons.append([{"text": "👑 ADMIN SERVER CONTROL", "callback_data": "admin:panel"}])
 
@@ -1118,7 +1109,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Ultra-Fast Master Engine is Ready!")
+    print(f"🚀 {BOT_TITLE} Master Engine is LIVE!")
 
     offset = None
     while True:
@@ -1151,7 +1142,6 @@ def run_server():
 
                         record_user_activity(chat_id)
 
-                        # Admin Maintenance & Active Command Handlers
                         if str(chat_id) == str(ADMIN_CHAT_ID):
                             if text == "/maintenance":
                                 set_maintenance_mode(True)
@@ -1186,12 +1176,10 @@ def run_server():
                                 TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("🟢 <b>Server Online Activated. System unlocked for all users.</b>")
                                 continue
 
-                        # Enforce Maintenance Lock for Normal Users
                         if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
                             continue
 
-                        # Step-by-Step Schedule Mode Text Input Flow
                         if chat_id in user_input_state:
                             st_info = user_input_state[chat_id]
                             step = st_info.get("step")
@@ -1278,7 +1266,11 @@ def run_server():
                         except Exception:
                             pass
 
-                        # Admin Panel Actions
+                        if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
+                            TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
+                            continue
+
+                        # Admin Actions
                         if str(chat_id) == str(ADMIN_CHAT_ID):
                             if cb_data == "admin:panel":
                                 send_admin_panel(chat_id, msg_id)
@@ -1314,10 +1306,6 @@ def run_server():
                                 broadcast_to_all_users(active_msg)
                                 send_admin_panel(chat_id, msg_id)
                                 continue
-
-                        if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
-                            TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
-                            continue
 
                         if cb_data == "menu:schedule_mode":
                             user_input_state[chat_id] = {"step": "WAIT_CHANNEL"}
