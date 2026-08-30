@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — OFFICIAL 100% ACCURATE VIP ENGINE (FIXED RESULT PIPELINE)
-- Guaranteed Result Card Delivery with Solid Fallback Engine
-- Dual State Control: /maintenance & /active
+👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (ADMIN PANEL & MAINTENANCE SYSTEM)
+- Dual State Control: /maintenance, /active & Admin Menu Button Controls
+- Instant Broadcast: Alerts all registered users instantly on server status changes
 - Luxury VIP 3-Style UI:
     1. Radar Scanner Active Card
     2. Execution Ticket Card
-    3. Golden Trophy Result Card (with live Total Score & Accuracy calculation)
-- Schedule Mode: Target Channel/Group automated sessions with 30m alerts & Partial Scorecards
-- Live Engine: 3-attempt retry loop with exact UTC timestamp & 59s matching window
+    3. Golden Trophy Result Card (Live Score & Accuracy Calculation)
+- Schedule Mode: Automated channel session worker with 30m alerts & Partial Scorecard
+- Strict Candlestick Engine: 3-attempt retry loop with exact UTC timestamp & 59s matching window
 """
 
 import os
@@ -137,7 +137,7 @@ def broadcast_to_all_users(text):
     for u in users:
         try:
             TelegramBot(chat_id=u).send_message(text)
-            time.sleep(0.05)
+            time.sleep(0.04)
         except Exception:
             continue
 
@@ -208,7 +208,6 @@ def evaluate_primary_candle(pair, target_dt, direction):
         op = candle["open"]
         cl = candle["close"]
         return (cl > op) if direction in ["CALL", "BUY"] else (cl < op)
-    # API Failure Safe Fallback
     return random.choice([True, False])
 
 def evaluate_mtg_candle(pair, target_dt, direction):
@@ -218,7 +217,6 @@ def evaluate_mtg_candle(pair, target_dt, direction):
         op = candle["open"]
         cl = candle["close"]
         return (cl > op) if direction in ["CALL", "BUY"] else (cl < op)
-    # API Failure Safe Fallback
     return random.choice([True, False])
 
 # ================= HELPER FUNCTIONS & STORAGE =================
@@ -699,7 +697,6 @@ def auto_mode_loop(chat_id, username=None):
         )
         bot_instance.send_message(res_card)
         
-        # Short cooldown before generating next signal
         for _ in range(5):
             if not auto_mode_users.get(c_id, False):
                 break
@@ -958,15 +955,20 @@ def run_server():
         return new_id
 
     def send_main_menu(chat_id, target_msg_id=None):
-        kb = {
-            "inline_keyboard": [
-                [{"text": "🤖 AUTO MODE", "callback_data": "menu:auto_signals"}, {"text": "⏱ SCHEDULE MODE", "callback_data": "menu:schedule_mode"}],
-                [{"text": "🍥 FUTURE MODE", "callback_data": "menu:future"}],
-                [{"text": "📊 DAILY SUMMARY", "callback_data": "menu:daily_summary"}],
-                [{"text": "👤 MY PROFILE", "callback_data": "menu:profile"}],
-                [{"text": "💬 SUPPORT", "callback_data": "menu:support"}, {"text": "❕ ABOUT", "callback_data": "menu:about"}],
-            ]
-        }
+        is_admin = str(chat_id) == str(ADMIN_CHAT_ID)
+        keyboard_buttons = [
+            [{"text": "🤖 AUTO MODE", "callback_data": "menu:auto_signals"}, {"text": "⏱ SCHEDULE MODE", "callback_data": "menu:schedule_mode"}],
+            [{"text": "🍥 FUTURE MODE", "callback_data": "menu:future"}],
+            [{"text": "📊 DAILY SUMMARY", "callback_data": "menu:daily_summary"}],
+            [{"text": "👤 MY PROFILE", "callback_data": "menu:profile"}],
+            [{"text": "💬 SUPPORT", "callback_data": "menu:support"}, {"text": "❕ ABOUT", "callback_data": "menu:about"}],
+        ]
+        
+        # Dedicated Admin Control Button in Menu
+        if is_admin:
+            keyboard_buttons.append([{"text": "👑 ADMIN SERVER CONTROL", "callback_data": "admin:panel"}])
+
+        kb = {"inline_keyboard": keyboard_buttons}
         text = (
             "╭━━━━━━━━━━━━━━━━━━━━╮\n"
             f"│ 👑 <b>{BOT_TITLE}</b> 👑\n"
@@ -991,6 +993,26 @@ def run_server():
             "📶 <b>Select an option below to begin:</b>"
         )
         edit_or_send(chat_id, text, kb, target_msg_id)
+
+    def send_admin_panel(chat_id, target_msg_id=None):
+        status_txt = "🔴 MAINTENANCE ACTIVE" if is_maintenance_active() else "🟢 SERVER ONLINE"
+        total_users = len(get_all_registered_users())
+        panel_text = (
+            f"👑 <b>ADMIN SYSTEM CONTROLLER</b> 👑\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>Current Server State:</b> <b>{status_txt}</b>\n"
+            f"👥 <b>Total Registered Users:</b> <code>{total_users} Users</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Click a button below to broadcast status instantly:</i>"
+        )
+        kb = {
+            "inline_keyboard": [
+                [{"text": "🟢 Turn Server ONLINE (Unlock)", "callback_data": "adm_act:online"}],
+                [{"text": "🔧 Turn Maintenance ON (Lock)", "callback_data": "adm_act:maintenance"}],
+                [{"text": "🔙 BACK TO MENU", "callback_data": "back_to_menu"}]
+            ]
+        }
+        edit_or_send(chat_id, panel_text, kb, target_msg_id)
 
     def send_profile_menu(chat_id, username="", target_msg_id=None):
         user_tz, tz_offset = get_user_tz(chat_id)
@@ -1255,6 +1277,43 @@ def run_server():
                             requests.post(ANSWER_CALLBACK, data={"callback_query_id": cb_id}, timeout=3)
                         except Exception:
                             pass
+
+                        # Admin Panel Actions
+                        if str(chat_id) == str(ADMIN_CHAT_ID):
+                            if cb_data == "admin:panel":
+                                send_admin_panel(chat_id, msg_id)
+                                continue
+                            elif cb_data == "adm_act:maintenance":
+                                set_maintenance_mode(True)
+                                auto_mode_users.clear()
+                                maint_msg = (
+                                    "<blockquote>⚠️ <b>SYSTEM NOTICE: MAINTENANCE MODE</b> ⚠️\n"
+                                    "━━━━━━━━━━━━━━━━━━━\n"
+                                    "🛠 <b>Status:</b> <code>System Under Optimization / Update</code>\n"
+                                    "⏳ <b>Expected Time:</b> <code>Few Minutes</code>\n"
+                                    "🔒 <b>Signals:</b> <code>Temporarily Paused</code>\n"
+                                    "━━━━━━━━━━━━━━━━━━━\n"
+                                    "📢 <i>We are currently improving the system accuracy and algorithms. You will be notified as soon as the server goes live.</i>\n"
+                                    f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
+                                )
+                                broadcast_to_all_users(maint_msg)
+                                send_admin_panel(chat_id, msg_id)
+                                continue
+                            elif cb_data == "adm_act:online":
+                                set_maintenance_mode(False)
+                                active_msg = (
+                                    "<blockquote>🟢 <b>SYSTEM STATUS: SERVER ONLINE</b> 🟢\n"
+                                    "━━━━━━━━━━━━━━━━━━━\n"
+                                    f"⚡ <b>Engine:</b> <code>{BOT_TITLE} V1</code>\n"
+                                    "📡 <b>Market Feeds:</b> <code>Quotex OTC & Real Sync Active</code>\n"
+                                    "🎯 <b>Status:</b> <b>100% READY FOR SIGNALS</b>\n"
+                                    "━━━━━━━━━━━━━━━━━━━\n"
+                                    "📶 <i>All systems operational. You can now use the bot!</i>\n"
+                                    f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
+                                )
+                                broadcast_to_all_users(active_msg)
+                                send_admin_panel(chat_id, msg_id)
+                                continue
 
                         if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
