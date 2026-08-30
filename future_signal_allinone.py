@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — OFFICIAL ENGINE
-- Scoped Commands: Default users only see /start; admin controls isolated
-- Interactive Inline Buttons: Ultra-responsive callback handler
-- Full Features: Live Analysis, Luxury UI, MTG Engine, Schedule Mode
+👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (VIP ACTIVATION & ADMIN CONTROL)
+- VIP User Management:
+    • /add <user_id/username>: Adds to VIP & sends an instant Luxury VIP Activated notification to the user
+    • /remove <user_id/username>: Removes user from VIP
+    • /users: Displays full list of VIP authorized users
+- Maintenance & Online Controls: /maintenance & /active with automatic broadcast
+- Scoped Menus: Regular users only see /start, Admin sees full operational commands
+- 3 Luxury VIP Card Styles (Radar Scanner, Execution Ticket, Golden Trophy Result)
+- Automated Channel Schedule Mode + Strict Candlestick Verification Engine
 """
 
 import os
@@ -255,6 +260,9 @@ def load_vip_users():
         return [str(ADMIN_CHAT_ID)]
     return [str(u).lower().strip("@") for u in data.get("allowed_users", [str(ADMIN_CHAT_ID)])]
 
+def save_vip_users(users):
+    save_json(USERS_FILE, {"allowed_users": users})
+
 def is_vip_user(chat_id, username=None):
     if str(chat_id) == str(ADMIN_CHAT_ID):
         return True
@@ -373,16 +381,19 @@ def record_signal_stats(chat_id, status, user_tz):
 def setup_telegram_commands():
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
-        # Clear Default Menu to Only Show /start for Regular Users
+        # 1. Default Command Menu for Regular Users: ONLY /start
         default_commands = [{"command": "start", "description": "Launch Trading Bot"}]
         requests.post(
             f"{base}/setMyCommands",
             json={"commands": default_commands, "scope": {"type": "default"}},
             timeout=5
         )
-        # Dedicated Admin Chat Menu
+        # 2. Exclusive Admin Command Menu
         admin_commands = [
             {"command": "start", "description": "Launch Trading Bot"},
+            {"command": "add", "description": "Add VIP User (/add <id/username>)"},
+            {"command": "remove", "description": "Remove VIP User (/remove <id>)"},
+            {"command": "users", "description": "List VIP Users"},
             {"command": "active", "description": "Turn Server Online"},
             {"command": "maintenance", "description": "Turn Maintenance Mode On"}
         ]
@@ -556,6 +567,21 @@ def build_maintenance_card():
         "━━━━━━━━━━━━━━━━━━━\n"
         "📢 <i>আমরা বটের নির্ভুলতা ও স্পিড বাড়ানোর জন্য কাজ করছি। কাজ শেষ হওয়া মাত্রই বট স্বয়ংক্রিয়ভাবে আবার সবার জন্য চালু হয়ে যাবে।</i>\n\n"
         f"💬 <b>Admin Support:</b> {TELEGRAM_HANDLE}\n"
+        f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
+    )
+
+def build_vip_activated_notification_card():
+    return (
+        "<blockquote>👑 <b>VIP ACCESS ACTIVATED!</b> 👑\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎉 <b>Congratulations!</b> Your account has been upgraded to <b>VIP ACCESS</b>.\n\n"
+        "💎 <b>UNLOCKED PRIVILEGES:</b>\n"
+        "• ♾ <b>Unlimited Auto Signal Engine</b>\n"
+        "• 🔮 <b>Unlimited Future Mode Large Batches</b>\n"
+        "• ⚡ <b>Ultra-Low Latency Live Candle Sync</b>\n"
+        "• 🛡 <b>Full Martingale Risk Protection</b>\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🚀 Press /start to launch your Unlimited VIP Trading Desk!\n"
         f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
     )
 
@@ -988,19 +1014,25 @@ def run_server():
     def send_admin_panel(chat_id, target_msg_id=None):
         status_txt = "🔴 MAINTENANCE ACTIVE" if is_maintenance_active() else "🟢 SERVER ONLINE"
         total_users = len(get_all_registered_users())
+        total_vip = len(load_vip_users())
         panel_text = (
             f"👑 <b>ADMIN SYSTEM CONTROLLER</b> 👑\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"📊 <b>Current Server State:</b> <b>{status_txt}</b>\n"
-            f"👥 <b>Total Registered Users:</b> <code>{total_users} Users</code>\n"
+            f"👥 <b>Total Users:</b> <code>{total_users} Users</code> ┃ <b>VIPs:</b> <code>{total_vip}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"<i>Click a button below to broadcast status instantly:</i>"
+            f"<b>Commands:</b>\n"
+            f"• <code>/add &lt;user_id or username&gt;</code> ➔ Add VIP & notify\n"
+            f"• <code>/remove &lt;user_id&gt;</code> ➔ Revoke VIP\n"
+            f"• <code>/users</code> ➔ List all VIPs\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>Click below to switch server mode:</i>"
         )
         kb = {
             "inline_keyboard": [
                 [{"text": "🟢 Turn Server ONLINE (Unlock)", "callback_data": "adm_act:online"}],
                 [{"text": "🔧 Turn Maintenance ON (Lock)", "callback_data": "adm_act:maintenance"}],
-                [{"text": "🔙 BACK TO MENU", "callback_data": "back_to_menu"}]
+                [{"text": "🔙 BACK TO MENU", "callback_data": "back_to_menu"}],
             ]
         }
         edit_or_send(chat_id, panel_text, kb, target_msg_id)
@@ -1109,7 +1141,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Master Engine is LIVE!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready!")
 
     offset = None
     while True:
@@ -1142,8 +1174,62 @@ def run_server():
 
                         record_user_activity(chat_id)
 
+                        # Admin Commands Handling
                         if str(chat_id) == str(ADMIN_CHAT_ID):
-                            if text == "/maintenance":
+                            # /add Command: Add VIP and Send Notification to User
+                            if text.startswith("/add"):
+                                parts = text.split(maxsplit=1)
+                                if len(parts) > 1:
+                                    target = parts[1].strip()
+                                    target_clean = target.lower().strip("@")
+                                    vip_users = load_vip_users()
+                                    if target_clean not in vip_users:
+                                        vip_users.append(target_clean)
+                                        save_vip_users(vip_users)
+                                    
+                                    # Send Instant VIP Notification directly to User
+                                    notif_sent = False
+                                    try:
+                                        target_chat_id = int(target_clean)
+                                        res = TelegramBot(chat_id=target_chat_id).send_message(build_vip_activated_notification_card())
+                                        if res:
+                                            notif_sent = True
+                                    except Exception:
+                                        pass
+                                    
+                                    status_extra = " (📩 <i>Notification sent to user</i>)" if notif_sent else ""
+                                    TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(
+                                        f"✅ <b>User Added to VIP:</b> <code>{target}</code>{status_extra}"
+                                    )
+                                else:
+                                    TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("⚠️ <b>Usage:</b> <code>/add &lt;user_id or username&gt;</code>")
+                                continue
+
+                            # /remove Command: Revoke VIP
+                            elif text.startswith("/remove"):
+                                parts = text.split(maxsplit=1)
+                                if len(parts) > 1:
+                                    target = parts[1].strip().lower().strip("@")
+                                    vip_users = load_vip_users()
+                                    if target in vip_users:
+                                        vip_users.remove(target)
+                                        save_vip_users(vip_users)
+                                        TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(f"🗑 <b>Removed VIP Access for:</b> <code>{target}</code>")
+                                    else:
+                                        TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(f"⚠️ User <code>{target}</code> not found in VIP list.")
+                                else:
+                                    TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("⚠️ <b>Usage:</b> <code>/remove &lt;user_id or username&gt;</code>")
+                                continue
+
+                            # /users Command: List All VIPs
+                            elif text == "/users":
+                                vip_users = load_vip_users()
+                                v_list = "\n".join([f"• <code>{u}</code>" for u in vip_users]) if vip_users else "None"
+                                TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(f"👑 <b>VIP AUTHORIZED USERS ({len(vip_users)}):</b>\n\n{v_list}")
+                                continue
+
+                            # /maintenance Command
+                            elif text == "/maintenance":
                                 set_maintenance_mode(True)
                                 auto_mode_users.clear()
                                 maint_msg = (
@@ -1160,6 +1246,7 @@ def run_server():
                                 TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("🛠 <b>Maintenance Mode Activated. All users locked.</b>")
                                 continue
 
+                            # /active Command
                             elif text == "/active":
                                 set_maintenance_mode(False)
                                 active_msg = (
@@ -1176,10 +1263,12 @@ def run_server():
                                 TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("🟢 <b>Server Online Activated. System unlocked for all users.</b>")
                                 continue
 
+                        # Enforce Maintenance Lock for Normal Users
                         if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
                             continue
 
+                        # Step-by-Step Schedule Mode Text Input Flow
                         if chat_id in user_input_state:
                             st_info = user_input_state[chat_id]
                             step = st_info.get("step")
@@ -1266,11 +1355,6 @@ def run_server():
                         except Exception:
                             pass
 
-                        if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
-                            TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
-                            continue
-
-                        # Admin Actions
                         if str(chat_id) == str(ADMIN_CHAT_ID):
                             if cb_data == "admin:panel":
                                 send_admin_panel(chat_id, msg_id)
@@ -1306,6 +1390,10 @@ def run_server():
                                 broadcast_to_all_users(active_msg)
                                 send_admin_panel(chat_id, msg_id)
                                 continue
+
+                        if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
+                            TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
+                            continue
 
                         if cb_data == "menu:schedule_mode":
                             user_input_state[chat_id] = {"step": "WAIT_CHANNEL"}
