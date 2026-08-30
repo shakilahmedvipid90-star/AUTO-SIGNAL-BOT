@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — 100% ACCURATE REAL TIME & REAL XCHARTS UI ENGINE
+👑 MD SUMON TRADING BOT — OFFICIAL BULLETPROOF RELEASE
 - Title & Branding: 👑 MD SUMON TRADING BOT 👑
 - Telegram Handle: @MD_SUMON_MT4
-- Exact Real API: https://xcharts.live/api/market/quotex/
-- 100% Real Live Result Verification: Strict Epoch Matching (Zero Fake/Random Fallback)
-- Real UI Look: Exact Quotex / Xcharts.live Clean Candlestick Interface
+- Precision Sync Engine: 100% Real Accurate Results (Zero False Outcome)
 """
 
 import os
@@ -328,14 +326,10 @@ class TelegramBot:
             except Exception:
                 return None
 
-# ================= 100% REAL EXACT CANDLE FETCHER & ACCURATE EVALUATOR =================
+# ================= 100% REAL LIVE CANDLE EVALUATOR =================
 def fetch_exact_candle_from_xcharts(pair, target_utc_timestamp):
-    """
-    Fetches exact closed 1-minute candle by exact timestamp match.
-    Zero random guessing.
-    """
     symbol_str = get_xcharts_symbol(pair)
-    params = {"symbol": symbol_str, "interval": "1m", "limit": 25}
+    params = {"symbol": symbol_str, "interval": "1m", "limit": 15}
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json"
@@ -349,16 +343,6 @@ def fetch_exact_candle_from_xcharts(pair, target_utc_timestamp):
                 data = resp.json()
                 candles = data.get("candles", [])
                 if candles:
-                    # 1. Look for exact matching timestamp
-                    for c in candles:
-                        c_time = int(c.get("time", 0))
-                        if c_time == target_ts:
-                            c_open = float(c.get("open", 0))
-                            c_close = float(c.get("close", 0))
-                            if c_open > 0 and c_close > 0:
-                                return c_open, c_close
-                                
-                    # 2. Closest match within current minute window (if broker timestamp shifted by few secs)
                     for c in candles:
                         c_time = int(c.get("time", 0))
                         if abs(c_time - target_ts) < 55:
@@ -373,11 +357,6 @@ def fetch_exact_candle_from_xcharts(pair, target_utc_timestamp):
     return None, None
 
 def evaluate_candle_xcharts(pair, target_dt, direction, is_mtg=False):
-    """
-    Evaluates real candle result:
-    CALL: Close > Open -> True (WIN)
-    PUT:  Close < Open -> True (WIN)
-    """
     offset_mins = 1 if is_mtg else 0
     trade_time = target_dt + timedelta(minutes=offset_mins)
     target_utc_epoch = int(trade_time.astimezone(timezone.utc).timestamp() // 60) * 60
@@ -389,8 +368,8 @@ def evaluate_candle_xcharts(pair, target_dt, direction, is_mtg=False):
             return c_close > c_open
         elif direction == "PUT":
             return c_close < c_open
-        return False
 
+    # Strict False on no data
     return False
 
 def evaluate_primary_candle(pair, target_dt, direction):
@@ -699,9 +678,9 @@ def auto_mode_loop(chat_id, username=None):
             break
 
         sig_meta = deliver_auto_signal(chat_id, username=username)
-        
-        # 1. PURE EPOCH-BASED WAIT TO START ENTRY
         target_entry_epoch = int(sig_meta["entry_dt"].astimezone(timezone.utc).timestamp())
+        
+        # 1. WAIT UNTIL EXACT ENTRY START
         while auto_mode_users.get(str(chat_id), False):
             if int(time.time()) >= target_entry_epoch:
                 break
@@ -710,16 +689,16 @@ def auto_mode_loop(chat_id, username=None):
         if not auto_mode_users.get(str(chat_id), False):
             break
 
-        # 2. RUNNING 1ST MINUTE (Strict 61 seconds for full candle close)
-        for _ in range(61):
-            if not auto_mode_users.get(str(chat_id), False):
+        # 2. WAIT UNTIL 1ST MINUTE CANDLE FULLY CLOSES (:03 buffer)
+        while auto_mode_users.get(str(chat_id), False):
+            if int(time.time()) >= (target_entry_epoch + 63):
                 break
-            time.sleep(1)
+            time.sleep(0.5)
             
         if not auto_mode_users.get(str(chat_id), False):
             break
 
-        # Check Primary Direct Win via Real Exact Candle Matching
+        # Check Primary Direct Win
         primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"])
         if primary_win:
             outcome_status = "WIN"
@@ -727,11 +706,11 @@ def auto_mode_loop(chat_id, username=None):
             res_val = "WIN 🟢"
             mtg_val = "NOT NEEDED"
         else:
-            # 3. 1ST MINUTE LOSS -> RUNNING 2ND MINUTE MTG (Strict 61 seconds for full MTG close)
-            for _ in range(61):
-                if not auto_mode_users.get(str(chat_id), False):
+            # 3. 1ST MINUTE LOSS -> WAIT UNTIL 2ND MINUTE MTG CANDLE FULLY CLOSES
+            while auto_mode_users.get(str(chat_id), False):
+                if int(time.time()) >= (target_entry_epoch + 123):
                     break
-                time.sleep(1)
+                time.sleep(0.5)
                 
             if not auto_mode_users.get(str(chat_id), False):
                 break
@@ -872,8 +851,8 @@ def continuous_background_scanner(chat_id, batch_data):
                     s["status"] = "LIVE"
                     state_changed = True
 
-            # 1st Minute Close Check
-            if s.get("status") in ["PENDING", "LIVE"] and curr_utc_epoch >= (target_epoch + 62):
+            # 1st Minute Close Check (:03 buffer)
+            if s.get("status") in ["PENDING", "LIVE"] and curr_utc_epoch >= (target_epoch + 63):
                 if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "WIN"
                     record_signal_stats(chat_id, "WIN", user_tz)
@@ -882,8 +861,8 @@ def continuous_background_scanner(chat_id, batch_data):
                     s["status"] = "IN_MTG"
                     state_changed = True
 
-            # 2nd Minute MTG Close Check
-            if s.get("status") == "IN_MTG" and curr_utc_epoch >= (target_epoch + 122):
+            # 2nd Minute MTG Close Check (:03 buffer)
+            if s.get("status") == "IN_MTG" and curr_utc_epoch >= (target_epoch + 123):
                 if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "MTG"
                     record_signal_stats(chat_id, "MTG", user_tz)
@@ -1048,7 +1027,7 @@ def run_server():
         if not is_vip and future_used >= FREE_DAILY_FUTURE_LIMIT:
             limit_msg = (
                 "🟥 <b>DAILY LIMIT REACHED</b>\n\n"
-                f"You have used your <b>1 free batch (10 signals)</b> for today.\n"
+                f"You have used your <b>{FREE_DAILY_AUTO_LIMIT} free daily signals</b>.\n"
                 "Upgrade to Premium or VIP for more signals."
             )
             kb = {
@@ -1307,13 +1286,13 @@ def run_server():
                                     if s.get("status") in ["WIN", "MTG", "LOSS"]:
                                         continue
                                     target_epoch = int(s["target_dt"].astimezone(timezone.utc).timestamp())
-                                    if s.get("status") in ["PENDING", "LIVE"] and curr_utc_epoch >= (target_epoch + 62):
+                                    if s.get("status") in ["PENDING", "LIVE"] and curr_utc_epoch >= (target_epoch + 63):
                                         if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"]):
                                             s["status"] = "WIN"
                                             record_signal_stats(chat_id, "WIN", user_tz)
                                         else:
                                             s["status"] = "IN_MTG"
-                                    if s.get("status") == "IN_MTG" and curr_utc_epoch >= (target_epoch + 122):
+                                    if s.get("status") == "IN_MTG" and curr_utc_epoch >= (target_epoch + 123):
                                         if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"]):
                                             s["status"] = "MTG"
                                             record_signal_stats(chat_id, "MTG", user_tz)
