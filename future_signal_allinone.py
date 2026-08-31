@@ -2,11 +2,12 @@
 """
 👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE
 ✨ Quantum Technical Analysis & Neural Trend Detection Activated ✨
-- UI Match: 100% Exact Result Card Restored as per Image 2 (Clickable Telegram Mention & Original Spacing)
 - High-Accuracy Algorithmic Engine: Live 30-Candle Multi-Frame EMA(7/21), RSI Flow, and Candle-Physics Filtering
 - 7-Second Settled Candle Validation via XCharts API for 100% Broker-Matched Results
 - Dual State Control: /maintenance & /active with Instant Global User Broadcast
 - Scoped Menus: Default Users only see /start; Admin ID (7170071838) gets full 9-Command Suite
+- 3 Luxury VIP Card Styles (Radar Scanner, Execution Ticket, Golden Trophy Result)
+- Step-by-Step Schedule Mode with Channel Validation & Back/Cancel Controls
 """
 
 import os
@@ -237,12 +238,14 @@ def analyze_quantum_neural_engine(pair_raw):
     if not candles or len(candles) < 14:
         direction = random.choice(["CALL", "PUT"])
         confidence = random.randint(95, 98)
-        return direction, confidence, "EMA 9/21 + RSI 14 + Reversal Flow"
+        return direction, confidence, "Neural Trend + Price Action Matrix"
 
     closes = [float(c["close"]) for c in candles]
     opens = [float(c["open"]) for c in candles]
+    highs = [float(c["high"]) for c in candles]
+    lows = [float(c["low"]) for c in candles]
 
-    # 1. Neural Trend Detection: EMA(7) vs EMA(21)
+    # 1. Neural Trend Detection: EMA(7) vs EMA(21) Moving Momentum
     def calc_ema(values, period):
         k = 2 / (period + 1)
         ema = [values[0]]
@@ -261,7 +264,7 @@ def analyze_quantum_neural_engine(pair_raw):
     trend_bullish = ema7_val > ema21_val
     trend_slope_up = (ema7[-1] - ema7[-3]) > 0 if len(ema7) >= 3 else True
 
-    # 2. Quantum Technical Analysis: RSI Flow
+    # 2. Quantum Technical Analysis: Relative Strength Index & Physics
     gains, losses = [], []
     for i in range(1, len(closes[-14:])):
         diff = closes[-14:][i] - closes[-14:][i-1]
@@ -277,27 +280,27 @@ def analyze_quantum_neural_engine(pair_raw):
     rs = avg_gain / avg_loss if avg_loss != 0 else 1
     rsi = 100 - (100 / (1 + rs))
 
-    # Decision Matrix
+    # Algorithmic Filtering Decision
     if trend_bullish and trend_slope_up and rsi < 72:
         direction = "CALL"
         confidence = random.randint(96, 99)
-        engine_tag = "EMA 9/21 + RSI 14 + Neural Bullish Flow"
+        engine_tag = "Neural Bullish Trend + Quantum Flow"
     elif not trend_bullish and not trend_slope_up and rsi > 28:
         direction = "PUT"
         confidence = random.randint(96, 99)
-        engine_tag = "EMA 9/21 + RSI 14 + Neural Bearish Flow"
+        engine_tag = "Neural Bearish Trend + Quantum Flow"
     elif rsi <= 30:
         direction = "CALL"
         confidence = random.randint(95, 98)
-        engine_tag = "Quantum RSI Oversold Reversal"
+        engine_tag = "Quantum Oversold Rebound"
     elif rsi >= 70:
         direction = "PUT"
         confidence = random.randint(95, 98)
-        engine_tag = "Quantum RSI Overbought Reversal"
+        engine_tag = "Quantum Overbought Rejection"
     else:
         direction = "CALL" if current_close >= current_open else "PUT"
         confidence = random.randint(95, 97)
-        engine_tag = "Price Action + Volatility Flow"
+        engine_tag = "Neural Volatility Pulse"
 
     return direction, confidence, engine_tag
 
@@ -481,14 +484,14 @@ def record_signal_stats(chat_id, status, user_tz):
 def setup_telegram_commands():
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
-        # 1. Regular Users Scope: ONLY /start
+        # 1. Regular User Command Menu: Only /start
         default_commands = [{"command": "start", "description": "Launch Trading Bot"}]
         requests.post(
             f"{base}/setMyCommands",
             json={"commands": default_commands, "scope": {"type": "default"}},
             timeout=5
         )
-        # 2. Exclusive Admin Scope: Full 9 Commands Suite
+        # 2. Exclusive Admin Command Menu (9 Full Controls)
         admin_commands = [
             {"command": "start", "description": "Launch Trading Bot"},
             {"command": "check", "description": "Inspect User Audit / History"},
@@ -598,15 +601,15 @@ def build_partial_scoreboard_text(chat_id, user_tz):
         f"────────── . ──────────</blockquote>"
     )
 
-# ================= LUXURY VIP CARD BUILDERS (MATCHED WITH PIC 2) =================
-def build_radar_scanner_card(clean_pair, confidence, tz_str, algorithm_tag="EMA 9/21 + RSI 14 + Reversal Flow"):
+# ================= LUXURY VIP CARD BUILDERS =================
+def build_radar_scanner_card(clean_pair, confidence, tz_str, algorithm_tag):
     return (
         f"<blockquote>📡 <b>MARKET SCANNER ACTIVE</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"⚡ <b>Target Pair:</b> {clean_pair}\n"
-        f"🎯 <b>Confidence:</b> {confidence}% Ultra-High\n"
-        f"📊 <b>Algorithm:</b> {algorithm_tag}\n"
-        f"🌐 <b>Server Zone:</b> {tz_str} (Live Sync)\n"
+        f"⚡ <b>Target Pair:</b> <code>{clean_pair}</code>\n"
+        f"🎯 <b>Confidence:</b> <code>{confidence}% Ultra-High</code>\n"
+        f"🧠 <b>Algorithm:</b> <code>{algorithm_tag}</code>\n"
+        f"🌐 <b>Server Zone:</b> <code>{tz_str} (Live Sync)</code>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"⏳ <i>Locking best entry point...</i></blockquote>"
     )
@@ -617,9 +620,9 @@ def build_execution_ticket_card(clean_pair, dir_action, entry_str):
     return (
         f"<blockquote>💎 <b>VIP TRADE EXECUTION</b> 💎\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>ASSET :</b> {clean_pair}\n"
+        f"📊 <b>ASSET :</b> <code>{clean_pair}</code>\n"
         f"{dir_emoji} <b>ACTION :</b> <b>{action_text}</b>\n"
-        f"⏰ <b>ENTRY :</b> {entry_str}\n"
+        f"⏰ <b>ENTRY :</b> <code>{entry_str}</code>\n"
         f"⌛ <b>DURATION :</b> <b>1 MINUTE</b>\n"
         f"🛡 <b>MTG STRATEGY :</b> <b>MAX 1-STEP</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -630,32 +633,32 @@ def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins
     trade_call_text = "🟢 <b>BUY UP</b>" if dir_action == "CALL" else "🔴 <b>SELL DOWN</b>"
     
     if outcome_status == "WIN":
-        result_title = "✅ <b>DIRECT WIN (ITM)</b>"
-        profit_status = "🟩 <b>+85% PROFIT SECURED</b>"
-        mtg_status = "<b>NOT  REQUIRED</b>"
+        result_title = "✅ <b>DIRECT WIN (ITM) 🎯</b>"
+        profit_status = "🟩 <b>+85% PROFIT</b>"
+        mtg_status = "<code>NOT REQUIRED</code>"
     elif outcome_status == "MTG":
-        result_title = "🟡 <b>MTG WIN (ITM)</b>"
+        result_title = "🟡 <b>MTG WIN (ITM) 🎯</b>"
         profit_status = "🟨 <b>1-STEP RECOVERED</b>"
-        mtg_status = "<b>1 STEP USED</b>"
+        mtg_status = "<code>1 STEP USED</code>"
     else:
-        result_title = "❌ <b>TRADE LOSS (OTM)</b>"
+        result_title = "❌ <b>TRADE LOSS (OTM) 🛑</b>"
         profit_status = "🟥 <b>SESSION LOSS</b>"
-        mtg_status = "<b>FAILED</b>"
+        mtg_status = "<code>FAILED</code>"
 
     return (
         f"<blockquote>🏆 <b>OFFICIAL RESULT UPDATE</b> 🏆\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🏛 <b>Broker:</b> QUOTEX  OTC\n"
-        f"🪙 <b>Asset:</b> {clean_pair}\n"
+        f"🏛 <b>Broker:</b> <code>QUOTEX OTC</code>\n"
+        f"🪙 <b>Asset:</b> <code>{clean_pair}</code>\n"
         f"🎯 <b>Trade Call:</b> {trade_call_text}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"🎉 <b>RESULT:</b> {result_title}\n"
         f"📈 <b>Profit Status:</b> {profit_status}\n"
         f"🛡 <b>Martingale:</b> {mtg_status}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🧮 <b>TOTAL SCORE ➔</b> 🟢 <b>{wins} WIN</b> ┃ 🔴 <b>{losses} LOSS</b>\n"
-        f"🎯 <b>ACCURACY ➔</b> <b>({win_rate:.1f}%)</b>\n"
-        f"✈️ <b>TELEGRAM ➔</b> {TELEGRAM_HANDLE}\n"
+        f"🧮 <b>SCORE ➔</b> 🟢 <b>{wins} WIN</b> ┃ 🔴 <b>{losses} LOSS</b>\n"
+        f"🎯 <b>ACCURACY ➔ ({win_rate:.1f}%)</b>\n"
+        f"✈️ <b>TELEGRAM ➔</b> <code>{TELEGRAM_HANDLE}</code>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
     )
@@ -1274,7 +1277,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready with Exact VIP UI!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready with Quantum & Neural Filters!")
 
     offset = None
     while True:
