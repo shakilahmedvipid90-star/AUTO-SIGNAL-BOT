@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE
+👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (MAINTENANCE LOCKDOWN FIX)
+- Strict Maintenance Guard: Completely blocks /start command for non-admin users during maintenance
 - High-Accuracy Signal Engine: Live OHLC Technical Analysis (EMA 9/21, RSI 14, Reversal Pinbar, Hammer, Engulfing, Trend Flow)
-- Zero-Delay Instant Delivery: Microsecond calculations preserve instant next-signal flow
+- Zero-Delay Instant Delivery: Instant calculation & fast signal routing
 - Strict Candlestick Verification: 7-second buffer on primary (01:07) & MTG (02:07)
-- Telegram Message Limit Fix: Smart Partial Scoreboard showing recent entries with total session stats
-- Admin User Audit: /check <user_id> command restores full activity, quota, and win-rate inspection
-- Access Controls: Schedule whitelist (/addschedule, /removeschedule), VIP management (/add, /remove, /users), /maintenance & /active
+- Smart Partial Scoreboard: Shows recent 15 trades to avoid 4096-char Telegram limits
+- Full Admin Controls: /check, /add, /remove, /addschedule, /removeschedule, /users, /active, /maintenance
 """
 
 import os
@@ -563,7 +563,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= SMART PARTIAL SCORECARD SYSTEM (FIXED LENGTH) =================
+# ================= SMART PARTIAL SCORECARD SYSTEM =================
 def record_to_partial(chat_id, signal_entry):
     c_id = str(chat_id)
     if c_id not in user_partial_data:
@@ -588,7 +588,6 @@ def build_partial_scoreboard_text(chat_id, user_tz):
     losses = sum(1 for item in history if "❌" in item.get("result", "") or "🟥" in item.get("result", ""))
     win_rate = int((wins / total) * 100) if total > 0 else 0
 
-    # Display only the most recent 15 trades to avoid 4096 character Telegram length limit
     recent_entries = history[-15:]
     lines = ""
     for item in recent_entries:
@@ -679,13 +678,13 @@ def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins
 
 def build_maintenance_card():
     return (
-        "<blockquote>🛠 <b>SYSTEM UNDER MAINTENANCE</b> 🛠\n"
+        "<blockquote>⚠️ <b>SYSTEM NOTICE: MAINTENANCE MODE</b> ⚠️\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "🔒 <b>Access Status:</b> <code>Temporarily Locked</code>\n"
-        "⚙️ <b>Reason:</b> <code>System Optimization & Algorithm Update</code>\n"
-        "⏳ <b>Signal Engine:</b> <code>Offline for Security & Accuracy</code>\n"
+        "🛠 <b>Status:</b> <code>System Under Optimization / Update</code>\n"
+        "⏳ <b>Expected Time:</b> <code>Few Minutes</code>\n"
+        "🔒 <b>Signals:</b> <code>Temporarily Paused</code>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
-        "📢 <i>আমরা বটের নির্ভুলতা ও স্পিড বাড়ানোর জন্য কাজ করছি। কাজ শেষ হওয়া মাত্রই বট স্বয়ংক্রিয়ভাবে আবার সবার জন্য চালু হয়ে যাবে।</i>\n\n"
+        "📢 <i>We are currently improving the system accuracy and algorithms. You will be notified as soon as the server goes live.</i>\n\n"
         f"💬 <b>Admin Support:</b> {TELEGRAM_HANDLE}\n"
         f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
     )
@@ -705,7 +704,7 @@ def build_vip_activated_notification_card():
         f"👑 <b>{BOT_TITLE} VIP</b> 👑</blockquote>"
     )
 
-# ================= AUTO SIGNAL DISPATCHER (ANALYTIC & INSTANT) =================
+# ================= AUTO SIGNAL DISPATCHER =================
 def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=False):
     user_tz, tz_offset = get_user_tz(chat_id)
     now_dt = datetime.now(user_tz)
@@ -717,7 +716,6 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     selected_pair = pair if pair else random.choice(QUOTEX_OTC_ASSETS)
     clean_pair = format_pair_name(selected_pair)
     
-    # Ultra-Fast Live Technical Analysis (EMA, RSI, Reversal)
     direction, confidence = analyze_market_direction(selected_pair)
     dir_label = "BUY" if direction == "CALL" else "SELL"
     dir_action = "CALL" if direction == "CALL" else "PUT"
@@ -791,7 +789,7 @@ def auto_mode_loop(chat_id, username=None):
 
         sig_meta = deliver_auto_signal(c_id, username=username)
         
-        # 1. Primary trade expiry (+7 sec buffer for full candle close)
+        # 1. Primary trade expiry (+7 sec buffer)
         primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=7)
         while auto_mode_users.get(c_id, False):
             if datetime.now(user_tz) >= primary_settle_dt:
@@ -805,7 +803,7 @@ def auto_mode_loop(chat_id, username=None):
         if primary_win:
             outcome_status = "WIN"
         else:
-            # 2. MTG trade expiry (+7 sec buffer from original entry_dt)
+            # 2. MTG trade expiry (+7 sec buffer)
             mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=7)
             while auto_mode_users.get(c_id, False):
                 if datetime.now(user_tz) >= mtg_settle_dt:
@@ -848,7 +846,6 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
     bot_channel = TelegramBot(chat_id=target_channel)
     bot_admin = TelegramBot(chat_id=admin_chat_id)
     
-    # 1. Wait for 30m Alert Time
     now_time = datetime.now(user_tz)
     if now_time < alert_dt:
         while datetime.now(user_tz) < alert_dt:
@@ -871,7 +868,6 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 "Make sure the bot is an <b>Admin</b> in that channel with 'Post Messages' permission."
             )
     
-    # 2. Wait until Start Time
     while datetime.now(user_tz) < start_dt:
         time.sleep(2)
         
@@ -892,7 +888,6 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
 
     user_partial_data[str(target_channel)] = []
     
-    # 3. Live Auto-Signals in Target Channel
     while datetime.now(user_tz) < end_dt:
         sig_meta = deliver_auto_signal(target_channel, is_channel_session=True)
         
@@ -931,7 +926,6 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         bot_channel.send_message(res_card)
         time.sleep(4)
 
-    # 4. Final Partial Scorecard Delivery
     final_partial_card = build_partial_scoreboard_text(target_channel, user_tz)
     bot_channel.send_message(final_partial_card)
     
@@ -1021,13 +1015,11 @@ def continuous_background_scanner(chat_id, batch_data):
             
             has_pending = True
 
-            # Entry Time Reached
             if current_status == "PENDING" and now_time >= s["target_dt"]:
                 if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=7)):
                     s["status"] = "LIVE"
                     state_changed = True
 
-            # 1st Minute Primary Candle Resolution (+7 sec buffer)
             if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=7)):
                 if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "WIN"
@@ -1036,7 +1028,6 @@ def continuous_background_scanner(chat_id, batch_data):
                     s["status"] = "IN_MTG"
                 state_changed = True
 
-            # 2nd Minute MTG Candle Resolution (+7 sec buffer from original target_dt)
             if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=7)):
                 if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"]):
                     s["status"] = "MTG"
@@ -1320,18 +1311,8 @@ def run_server():
 
                         record_user_activity(chat_id)
 
-                        # /start Handler (Resets ongoing input state immediately)
-                        if text.startswith("/start"):
-                            user_input_state.pop(chat_id, None)
-                            old_m = user_active_menu_msg.pop(chat_id, None)
-                            if old_m:
-                                TelegramBot(chat_id=chat_id).delete_message(old_m)
-                            send_main_menu(chat_id, username=username)
-                            continue
-
                         # Admin Commands
                         if str(chat_id) == str(ADMIN_CHAT_ID):
-                            # /check <user_id> Command: Full User Audit
                             if text.startswith("/check"):
                                 parts = text.split(maxsplit=1)
                                 if len(parts) > 1:
@@ -1471,11 +1452,21 @@ def run_server():
                                 TelegramBot(chat_id=ADMIN_CHAT_ID).send_message("🟢 <b>Server Online Activated. System unlocked for all users.</b>")
                                 continue
 
+                        # STRICT MAINTENANCE LOCK: Non-admin users are completely blocked here!
                         if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
                             continue
 
-                        # Safe Schedule Wizard
+                        # /start Handler (Only executes if server is online OR user is Admin)
+                        if text.startswith("/start"):
+                            user_input_state.pop(chat_id, None)
+                            old_m = user_active_menu_msg.pop(chat_id, None)
+                            if old_m:
+                                TelegramBot(chat_id=chat_id).delete_message(old_m)
+                            send_main_menu(chat_id, username=username)
+                            continue
+
+                        # Schedule Wizard
                         if chat_id in user_input_state:
                             st_info = user_input_state[chat_id]
                             step = st_info.get("step")
@@ -1601,6 +1592,7 @@ def run_server():
                                 send_admin_panel(chat_id, msg_id)
                                 continue
 
+                        # Strict Maintenance Lock for Callbacks
                         if is_maintenance_active() and str(chat_id) != str(ADMIN_CHAT_ID):
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
                             continue
