@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (MULTI-ALGORITHM DYNAMIC EDITION)
-✨ Dynamic Multi-Algorithm Classifier & Clean Single-Line UI ✨
-- Fixed Algorithm Repetition: 9 dynamic algorithms assigned realistically per market conditions
+👑 MD SUMON TRADING BOT — ULTIMATE MASTER ENGINE (TAP-TO-COPY & MULTI-ALGO EDITION)
+✨ 1-Tap Copyable Asset Pairs & Dynamic Multi-Algorithm Classifier ✨
+- Tap-to-Copy Restored: All asset pairs (e.g. <code>USDEGP_otc</code>) are 1-tap copyable
 - Exact Screenshot Card Layout: Top Brand Header '👑 MD SUMON TRADING BOT 👑'
 - 10/12 High-Win Target: Dynamic Best-Pair Scan, Doji Bypass, Wick Physics & Exhaustion Filters
 - 7-Second Settled Candle Validation via XCharts API for 100% Broker-Matched Results
@@ -235,7 +235,6 @@ def fetch_live_candle_xcharts(pair_raw, target_dt):
 def analyze_advanced_filters(pair_raw):
     candles = fetch_recent_candles_xcharts(pair_raw, limit=30)
     
-    # Dynamic Balanced Fallback if API latency occurs
     if not candles or len(candles) < 15:
         algos = [
             ("CALL", "Neural Bullish Trend + Quantum Flow", 97),
@@ -305,7 +304,7 @@ def analyze_advanced_filters(pair_raw):
     consec_green = sum(1 for i in range(1, 5) if closes[-i] > opens[-i])
     consec_red = sum(1 for i in range(1, 5) if closes[-i] < opens[-i])
 
-    # Dynamic Classification Matrix (Evenly Distributed)
+    # Dynamic Decision Matrix
     if lower_wick > (last_body * 1.6) and rsi < 50:
         direction = "CALL"
         confidence = random.randint(97, 99)
@@ -361,7 +360,6 @@ def find_best_high_accuracy_signal(preferred_pair=None):
             return preferred_pair, res[0], res[1], res[2]
         return preferred_pair, "CALL", 96, "Neural Bullish Trend + Quantum Flow"
 
-    # Multi-asset simultaneous evaluation
     candidate_pool = random.sample(QUOTEX_OTC_ASSETS, min(7, len(QUOTEX_OTC_ASSETS)))
     valid_candidates = []
 
@@ -655,7 +653,7 @@ def build_partial_scoreboard_text(chat_id, user_tz):
         else:
             losses += 1
             badge = "🟥"
-        lines += f"⧉ {item['time']} - {item['pair']} - {item['dir']} {badge}\n────────── . ──────────\n"
+        lines += f"⧉ {item['time']} - <code>{item['pair']}</code> - {item['dir']} {badge}\n────────── . ──────────\n"
         
     win_rate = int((wins / total) * 100) if total > 0 else 0
     return (
@@ -674,13 +672,13 @@ def build_partial_scoreboard_text(chat_id, user_tz):
         f"────────── . ──────────</blockquote>"
     )
 
-# ================= 100% EXACT SCREENSHOT UI MATCHED CARDS =================
+# ================= 100% EXACT SCREENSHOT UI MATCHED CARDS (TAP-TO-COPY ACTIVE) =================
 def build_radar_scanner_card(clean_pair, confidence, tz_str, algorithm_tag):
     return (
         f"<blockquote>👑 <b>{BOT_TITLE}</b> 👑\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"📡 <b>MARKET SCANNER ACTIVE</b>\n\n"
-        f"⚡ <b>Target Pair:</b> {clean_pair}\n"
+        f"⚡ <b>Target Pair:</b> <code>{clean_pair}</code>\n"
         f"🎯 <b>Confidence:</b> {confidence}% Ultra-High\n"
         f"🧠 <b>Algorithm:</b> {algorithm_tag}\n"
         f"🌐 <b>Server Zone:</b> {tz_str} (Live Sync)\n"
@@ -693,9 +691,9 @@ def build_execution_ticket_card(clean_pair, dir_action, entry_str):
     return (
         f"<blockquote>👑 <b>{BOT_TITLE}</b> 👑\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>ASSET:</b> {clean_pair}\n"
+        f"📊 <b>ASSET:</b> <code>{clean_pair}</code>\n"
         f"🟢 <b>ACTION:</b> <b>{action_text}</b>\n"
-        f"⏰ <b>ENTRY:</b> {entry_str}\n"
+        f"⏰ <b>ENTRY:</b> <code>{entry_str}</code>\n"
         f"⌛ <b>EXPIRY:</b> <b>1 MINUTE</b>\n"
         f"🛡 <b>STRATEGY:</b> <b>MAX 1-STEP MTG</b>\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
@@ -723,7 +721,7 @@ def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"🏆 <b>OFFICIAL RESULT UPDATE</b> 🏆\n\n"
         f"🏛 <b>Broker:</b> QUOTEX OTC\n"
-        f"🪙 <b>Asset:</b> {clean_pair}\n"
+        f"🪙 <b>Asset:</b> <code>{clean_pair}</code>\n"
         f"🎯 <b>Trade:</b> {trade_call_text}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"🎉 <b>RESULT:</b> {result_title}\n"
@@ -1055,7 +1053,7 @@ def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz
             status_text = "<b>⏳ PENDING</b>"
             pending_count += 1
             
-        lines += f"{idx:02d}. {s['time_str']} ┃ {s['pair']} ➔ {dir_emoji} {s['direction']} ┃ {status_text}\n"
+        lines += f"{idx:02d}. {s['time_str']} ┃ <code>{s['pair']}</code> ➔ {dir_emoji} {s['direction']} ┃ {status_text}\n"
 
     footer = (
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1355,7 +1353,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Multi-Algorithm Engine is Ready!")
+    print(f"🚀 {BOT_TITLE} Tap-to-Copy Master Engine is Ready!")
 
     offset = None
     while True:
