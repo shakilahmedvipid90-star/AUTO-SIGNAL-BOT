@@ -1,6 +1,7 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — OFFICIAL 100% ACCURATE VIP ENGINE (MULTI-BROKER & REAL MARKET)
+- Smart Precision Cooldown: 1-3 Minutes Deep Scanning Pause Between Signals
 - Proven High-Accuracy Engine: Resistance Breakout + Wick/Doji Rejection + 8-Min Loss Cooldown Shield
 - Stealth VIP Schedule Mode: No STOP Time or Bot Clues exposed to Channel Members
 - Manual Admin In-Chat Live Schedule Controls: [SEND PARTIAL] & [STOP SCHEDULE]
@@ -975,10 +976,13 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
         )
         bot_instance.send_message(res_card)
         
-        for _ in range(5):
-            if not auto_mode_users.get(c_id, False):
-                break
-            time.sleep(1)
+        # ================= SMART PRECISION COOLDOWN & SCANNING PAUSE =================
+        # Takes 1 to 3 minutes to scan markets deeply before sending the next signal
+        scan_delay_seconds = random.randint(60, 180) # 1 to 3 minutes random gap for deep scanning
+        elapsed_scan = 0
+        while auto_mode_users.get(c_id, False) and elapsed_scan < scan_delay_seconds:
+            time.sleep(10)
+            elapsed_scan += 10
 
 # ================= AUTOMATED SCHEDULE MODE RUNNER =================
 def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, end_dt, alert_dt, broker_type="quotex"):
@@ -1125,7 +1129,13 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
             market_label=sig_meta.get("market_label", m_label)
         )
         bot_channel.send_message(res_card)
-        time.sleep(4)
+        
+        # Schedule session interval gap (1 to 3 minutes deep scan gap)
+        scan_delay_seconds = random.randint(60, 180)
+        elapsed_scan = 0
+        while datetime.now(user_tz) < end_dt and session_info["is_running"] and elapsed_scan < scan_delay_seconds:
+            time.sleep(10)
+            elapsed_scan += 10
 
     final_partial_card = build_partial_scoreboard_text(target_channel, user_tz)
     bot_channel.send_message(final_partial_card)
