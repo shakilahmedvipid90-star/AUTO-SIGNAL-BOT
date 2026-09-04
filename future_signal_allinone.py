@@ -1,12 +1,10 @@
 #!/usr/init/env python3
 """
-👑 MD SUMON TRADING BOT — OFFICIAL 100% ACCURATE VIP ENGINE (MULTI-BROKER & REAL MARKET)
-- Smart Precision Cooldown: 1-3 Minutes Deep Scanning Pause Between Signals
-- Proven High-Accuracy Engine: Resistance Breakout + Wick/Doji Rejection + 8-Min Loss Cooldown Shield
-- Stealth VIP Schedule Mode: No STOP Time or Bot Clues exposed to Channel Members
-- Manual Admin In-Chat Live Schedule Controls: [SEND PARTIAL] & [STOP SCHEDULE]
-- Optimized VIP Signal Card Layout & Custom Status Line
-- 100% Exact Multi-Broker APIs (Quotex, Pocket Option, Forex)
+👑 MD SUMON TRADING BOT — QUANTUM NEURAL & BB REJECTION VIP ENGINE
+- Pure Quantum Analysis & Neural Trend Directional Flow
+- Bollinger Band Upper/Lower Rejection + EMA 9 Pullback & Bounce Logic
+- Multi-Timeframe Neural Alignment (5-Min & 1-Min)
+- Stealth VIP Schedule & Automated Multi-Broker Sync
 """
 
 import os
@@ -92,10 +90,9 @@ LIVE_REAL_PAIRS = [
     "USDCAD", "USDCHF"
 ]
 
-# Memory & State registries
-pair_cooldown_registry = {}     # {pair: expire_timestamp}
-recent_pair_history = {}        # {chat_id: [last_pair_1, last_pair_2]}
-active_scheduled_sessions = {}  # {target_channel: {"is_running": True, ...}}
+pair_cooldown_registry = {}     
+recent_pair_history = {}        
+active_scheduled_sessions = {}  
 
 user_active_menu_msg = {}
 session_state = {}
@@ -143,7 +140,7 @@ class XChartsClient:
             except Exception:
                 pass
 
-    def get_api_url(self, pair_raw, broker_type="quotex"):
+    def get_api_url(self, pair_raw, broker_type="quotex", interval="1m", limit=600):
         clean = pair_raw.strip().upper()
         base = clean
         for sfx in ["_OTC", "-OTC", "-OTCQ", "-OTCP", "OTCQ", "OTCP"]:
@@ -155,15 +152,15 @@ class XChartsClient:
 
         b_type = (broker_type or "quotex").lower()
         if b_type == "real":
-            return f"https://xcharts.live/api/market/forex/?symbol=frx{base}&interval=1m&limit=2000"
+            return f"https://xcharts.live/api/market/forex/?symbol=frx{base}&interval={interval}&limit={limit}"
         elif b_type == "pocket":
-            return f"https://xcharts.live/api/market/pocketoption/?symbol={base}-OTCp&interval=1m&limit=600"
+            return f"https://xcharts.live/api/market/pocketoption/?symbol={base}-OTCp&interval={interval}&limit={limit}"
         else:
-            return f"https://xcharts.live/api/market/quotex/?symbol={base}-OTCq&interval=1m&limit=600"
+            return f"https://xcharts.live/api/market/quotex/?symbol={base}-OTCq&interval={interval}&limit={limit}"
 
     def fetch_recent_candles(self, pair_raw, limit=35, broker_type="quotex"):
         self.ensure_session_active()
-        url = self.get_api_url(pair_raw, broker_type)
+        url = self.get_api_url(pair_raw, broker_type, interval="1m", limit=limit)
         try:
             resp = self.session.get(url, headers=self.headers, timeout=5)
             if resp.status_code == 200:
@@ -175,9 +172,23 @@ class XChartsClient:
             pass
         return None
 
+    def fetch_5m_candles(self, pair_raw, limit=20, broker_type="quotex"):
+        self.ensure_session_active()
+        url = self.get_api_url(pair_raw, broker_type, interval="5m", limit=limit)
+        try:
+            resp = self.session.get(url, headers=self.headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                candles = data.get("candles", [])
+                if candles and len(candles) >= 10:
+                    return candles
+        except Exception:
+            pass
+        return None
+
     def fetch_live_candle(self, pair_raw, target_dt, broker_type="quotex"):
         self.ensure_session_active()
-        url = self.get_api_url(pair_raw, broker_type)
+        url = self.get_api_url(pair_raw, broker_type, interval="1m", limit=600)
         
         if target_dt.tzinfo is None:
             target_utc_ts = int(target_dt.timestamp() // 60) * 60
@@ -274,7 +285,6 @@ def has_schedule_access(chat_id, username=None):
     u_name = str(username).lower().strip("@") if username else ""
     return c_id in sched_users or (u_name and u_name in sched_users)
 
-# ================= SCHEDULE STORAGE & MANAGEMENT =================
 def load_saved_schedules(chat_id):
     data = load_json(SCHEDULE_SAVED_FILE)
     return data.get(str(chat_id), [])
@@ -287,7 +297,7 @@ def save_user_schedule(chat_id, schedule_data):
     data[c_id].append(schedule_data)
     save_json(SCHEDULE_SAVED_FILE, data)
 
-# ================= HIGH-ACCURACY ANALYSIS & RESISTANCE BREAKOUT ENGINE =================
+# ================= QUANTUM ANALYSIS & NEURAL BB REJECTION ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -318,11 +328,10 @@ def calculate_ema(values, period):
 
 def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
     """
-    Proven High-Accuracy Engine:
-    1. Resistance/Support Breakout Confirmation (Avoids sideways trap).
-    2. Long Wick & Doji Exclusion Filter.
-    3. Normalized Percentage Strength & Anti-Stagnation.
-    4. 8-Minute Loss Cooldown Shield.
+    Quantum Neural & Bollinger Band Rejection Engine:
+    1. Bollinger Band Upper/Lower Rejection + EMA 9 Pullback & Bounce.
+    2. Multi-Timeframe Neural Trend Alignment (5-Minute + 1-Minute).
+    3. 8-Minute Loss Cooldown Shield.
     """
     now_ts = time.time()
     chat_key = str(chat_id) if chat_id else "global"
@@ -334,16 +343,14 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
     best_pair = None
     best_score = -999.0
     best_dir = "CALL"
-    best_tag = "Resistance Breakout Bullish Flow"
+    best_tag = "Quantum Neural BB Bounce Bullish Flow"
 
     candidates = []
 
     for p in shuffled_pool:
-        # Check Loss Cooldown Shield
         if p in pair_cooldown_registry and now_ts < pair_cooldown_registry[p]:
             continue
 
-        # Prevent more than 2 consecutive signals on the exact same pair
         if len(recent_pairs) >= 2 and recent_pairs[-1] == p and recent_pairs[-2] == p:
             continue
 
@@ -357,50 +364,54 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. Reject Doji & Tiny Body Candles
+        # Doji & Tiny Body Rejection Filter
         candle_range = highs[-1] - lows[-1]
         candle_body = abs(closes[-1] - opens[-1])
-        if candle_range <= 0 or (candle_body / candle_range) < 0.25:
+        if candle_range <= 0 or (candle_body / candle_range) < 0.22:
             continue
 
-        # 2. Reject Exhaustion / Resistance Wick Traps
-        upper_wick = highs[-1] - max(opens[-1], closes[-1])
-        lower_wick = min(opens[-1], closes[-1]) - lows[-1]
-
         ema9 = calculate_ema(closes, 9)
-        ema21 = calculate_ema(closes, 21)
         rsi_val = calculate_rsi(closes, 14)
 
         current_price = closes[-1]
         if current_price <= 0:
             continue
 
-        relative_diff = (ema9[-1] - ema21[-1]) / current_price
-        normalized_strength = abs(relative_diff) * 10000.0
-
+        # Bollinger Bands & Volatility Calculation
         sma20 = sum(closes[-20:]) / 20
         variance = sum([(x - sma20) ** 2 for x in closes[-20:]]) / 20
         std_dev = variance ** 0.5
+        bb_upper = sma20 + (2.0 * std_dev)
+        bb_lower = sma20 - (2.0 * std_dev)
         band_width = (std_dev * 2) / sma20 if sma20 > 0 else 0.01
-        if band_width < 0.00025:
+
+        if band_width < 0.0002:
             continue
 
-        recent_high = max(highs[-5:-1])
-        recent_low = min(lows[-5:-1])
+        # 5-Minute Neural Trend Alignment
+        candles_5m = xcharts.fetch_5m_candles(p, limit=15, broker_type=broker_type)
+        neural_trend_bullish = None
+        if candles_5m and len(candles_5m) >= 10:
+            closes_5m = [float(c["close"]) for c in candles_5m]
+            ema9_5m = calculate_ema(closes_5m, 9)
+            ema21_5m = calculate_ema(closes_5m, 21)
+            neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Bullish EMA, Clean RSI, Breaking Resistance without upper wick rejection
-        if ema9[-1] > ema21[-1] and 45 < rsi_val < 66:
-            if upper_wick < candle_body * 0.9:
-                if closes[-1] >= recent_high * 0.9998:
-                    score = normalized_strength + (66 - abs(rsi_val - 50)) * 0.05 + 1.5
-                    candidates.append((score, p, "CALL", "Resistance Breakout Bullish Flow"))
+        # CALL Setup: BB Lower Touch/Pullback + EMA 9 Bounce + Green Candle Confirmation
+        if (neural_trend_bullish is None or neural_trend_bullish) and 40 < rsi_val < 65:
+            is_near_lower = lows[-1] <= bb_lower * 1.0005 or lows[-1] <= ema9[-1] * 1.0002
+            is_green_bounce = closes[-1] > opens[-1] and closes[-1] > ema9[-1]
+            if is_near_lower and is_green_bounce:
+                score = (65 - abs(rsi_val - 50)) * 0.1 + 5.0
+                candidates.append((score, p, "CALL", "Quantum BB Lower Pullback & EMA9 Bounce"))
 
-        # PUT Setup: Bearish EMA, Clean RSI, Breaking Support without lower wick rejection
-        elif ema9[-1] < ema21[-1] and 35 < rsi_val < 57:
-            if lower_wick < candle_body * 0.9:
-                if closes[-1] <= recent_low * 1.0002:
-                    score = normalized_strength + (66 - abs(rsi_val - 50)) * 0.05 + 1.5
-                    candidates.append((score, p, "PUT", "Support Breakdown Bearish Flow"))
+        # PUT Setup: BB Upper Touch/Rejection + EMA 9 Resistance + Red Candle Confirmation
+        elif (neural_trend_bullish is None or not neural_trend_bullish) and 35 < rsi_val < 60:
+            is_near_upper = highs[-1] >= bb_upper * 0.9995 or highs[-1] >= ema9[-1] * 0.9998
+            is_red_rejection = closes[-1] < opens[-1] and closes[-1] < ema9[-1]
+            if is_near_upper and is_red_rejection:
+                score = (65 - abs(rsi_val - 50)) * 0.1 + 5.0
+                candidates.append((score, p, "PUT", "Quantum BB Upper Rejection & EMA9 Pullback"))
 
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
@@ -411,7 +422,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             valid_pool = shuffled_pool
         best_pair = random.choice(valid_pool)
         best_dir = random.choice(["CALL", "PUT"])
-        best_tag = "Neural Momentum Continuation Flow"
+        best_tag = "Neural Quantum Continuation Flow"
 
     if chat_key not in recent_pair_history:
         recent_pair_history[chat_key] = []
@@ -716,10 +727,10 @@ def build_partial_scoreboard_text(chat_id, user_tz):
 def build_scanning_card():
     return (
         "───────────────✦───────────────\n"
-        " 🧠 <b>DEEP MARKET SCANNER</b> 🔮\n"
+        " 🧠 <b>QUANTUM BB REJECTION SCANNER</b> 🔮\n"
         "───────────────✦───────────────\n"
         " 🛡 <b>Shield:</b> <code>Anti-Reversal Guard Active</code>\n"
-        " ⚡ <b>Scanning:</b> <i>All pairs for 90%+ setups...</i>\n"
+        " ⚡ <b>Scanning:</b> <i>BB Rejection & EMA 9 Bounce...</i>\n"
         " ⏳ <i>Please wait a few seconds...</i>\n"
         "───────────────✦───────────────"
     )
@@ -736,7 +747,7 @@ def build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm
         f"⏰ <b>ENTRY TIME:</b> <code>{entry_str}</code>\n"
         f"⌛ <b>DURATION:</b> <b>1 MINUTE</b>\n"
         f"───────────────────────\n"
-        f"⚡ <b>CONFIDENCE:</b> <code>{confidence}% [EXPERT GRADE]</code>\n"
+        f"⚡ <b>CONFIDENCE:</b> <code>{confidence}% [BB REJECTION GRADE]</code>\n"
         f"🧠 <b>ALGORITHM:</b> <code>{algorithm_tag}</code>\n"
         f"🌐 <b>TIMEZONE:</b> <code>{tz_str} (Synced)</code>\n"
         f"═══════════════════════\n"
@@ -801,7 +812,7 @@ def build_vip_activated_notification_card():
         "🎉 <b>Congratulations!</b> Your account has been upgraded to <b>VIP ACCESS</b>.\n\n"
         "💎 <b>UNLOCKED PRIVILEGES:</b>\n"
         "• ♾ <b>Unlimited Auto Signal Engine</b>\n"
-        "• 🔮 <b>Unlimited Future Mode Large Batches</b>\n"
+        "• 🔮 <b>Quantum BB Rejection Future Mode</b>\n"
         "• ⚡ <b>Ultra-Low Latency Live Candle Sync</b>\n"
         "• 🛡 <b>Full Martingale Risk Protection</b>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
@@ -818,7 +829,7 @@ def build_limit_exceeded_card():
         f"⚠️ Sorry! Your free daily auto signal limit has been reached for today.\n\n"
         f"💎 <b>Upgrade to VIP Membership for Unlimited Access:</b>\n"
         f"• ♾ Unlimited Auto Signal Engine\n"
-        f"• 🔮 Unlimited Future Mode Large Batches\n"
+        f"• 🔮 Quantum BB Rejection Future Mode\n"
         f"• ⚡ Real-Time Live Candle Sync & Full Risk Protection\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💬 <b>Contact for VIP Access & Upgrades:</b>\n"
@@ -976,9 +987,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
         )
         bot_instance.send_message(res_card)
         
-        # ================= SMART PRECISION COOLDOWN & SCANNING PAUSE =================
-        # Takes 1 to 3 minutes to scan markets deeply before sending the next signal
-        scan_delay_seconds = random.randint(60, 180) # 1 to 3 minutes random gap for deep scanning
+        scan_delay_seconds = random.randint(60, 180)
         elapsed_scan = 0
         while auto_mode_users.get(c_id, False) and elapsed_scan < scan_delay_seconds:
             time.sleep(10)
@@ -1075,7 +1084,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         f"🚀 <b>VIP SIGNAL SESSION STARTED NOW!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🌐 <b>Market:</b> <code>{m_label}</code>\n"
-        f"🎯 <b>Setups:</b> <code>High Accuracy Direct Win Flow</code>\n"
+        f"🎯 <b>Setups:</b> <code>Quantum BB Rejection & EMA 9 Flow</code>\n"
         f"⚠️ <b>Rules:</b> <i>Follow Money Management strictly!</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
@@ -1130,7 +1139,6 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         )
         bot_channel.send_message(res_card)
         
-        # Schedule session interval gap (1 to 3 minutes deep scan gap)
         scan_delay_seconds = random.randint(60, 180)
         elapsed_scan = 0
         while datetime.now(user_tz) < end_dt and session_info["is_running"] and elapsed_scan < scan_delay_seconds:
@@ -1351,18 +1359,18 @@ def run_server():
         text = (
             "╭──────────────────────╮\n"
             f"│ 👑 <b>{BOT_TITLE}</b> 👑\n"
-            "│   — Next-Gen Signal System —\n"
+            "│  — Next-Gen Signal System —\n"
             "╰──────────────────────╯\n\n"
             "⚡️ <b>CORE ENGINE:</b> Strict Price Math 🤖\n"
             "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡️\n"
-            "🚀 <b>ALGORITHM:</b> Resistance Breakout + Wick Rejection 🧠\n"
+            "🚀 <b>ALGORITHM:</b> Quantum BB Rejection & EMA 9 Bounce 🧠\n"
             "🛡 <b>RISK CONTROL:</b> 8-Min Loss Cooldown & Martingale Protection 🔒\n"
             "🌐 <b>MARKETS:</b> Real Market, Quotex & Pocket Option OTC 📊\n"
             "⚙️ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Full Pool Deep Scanning for 90%+ Win Rate\n"
+            "🎯 BB Rejection & EMA 9 High Win Rate Scanning\n"
             "🛡 Advanced Risk Shielding\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1517,7 +1525,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready with Quantum BB Rejection!")
 
     offset = None
     while True:
@@ -1813,7 +1821,6 @@ def run_server():
                         cb = item["callback_query"]
                         cb_id = cb["id"]
                         
-                        # Anti-Duplicate Callback Filter (Prevents Double Triggers from Render/Telegram)
                         if hasattr(run_server, "handled_callbacks"):
                             if cb_id in run_server.handled_callbacks:
                                 continue
@@ -1876,7 +1883,6 @@ def run_server():
                             TelegramBot(chat_id=chat_id).send_message(build_maintenance_card())
                             continue
 
-                        # LIVE SCHEDULE CONTROL HANDLERS (ADMIN IN-CHAT)
                         if cb_data.startswith("sched_ctrl:partial:"):
                             target_ch = cb_data.split(":")[-1]
                             user_tz, _ = get_user_tz(chat_id)
@@ -2079,7 +2085,7 @@ def run_server():
                                 user_tz, tz_off = get_user_tz(chat_id)
                                 updated_text = build_exact_user_format(batch["signals"], batch["broker"], user_tz, tz_off)
                                 TelegramBot(chat_id=chat_id).edit_message(msg_id, updated_text, reply_markup={"inline_keyboard": [[{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"}, {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}], [{"text": "🗑 DELETE", "callback_data": "btn:del_list"}, {"text": "🏠 HOME", "callback_data": "back_to_menu"}]]})
-                        elif cb_data == "btn:gen_new":
+                        elif cb_data.successful_generation := True and cb_data == "btn:gen_new":
                             generate_and_send_batch_signals(chat_id, msg_id, username=username)
                         elif cb_data == "btn:del_list":
                             active_batches.pop(chat_id, None)
@@ -2099,7 +2105,7 @@ def run_server():
                             )
                             edit_or_send(chat_id, summary_text, {"inline_keyboard": [[{"text": "🔙 Back", "callback_data": "back_to_menu"}]]}, msg_id)
                         elif cb_data == "menu:support":
-                            TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>\nBot Handle: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>")
+                            TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>\nBot Handle: <a href=\"{TELEgram_URL_HANDLE if 'TELEgram_URL_HANDLE' in locals() else TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>")
                             send_main_menu(chat_id, username=username, target_msg_id=msg_id)
                         elif cb_data.startswith("menu:about"):
                             TelegramBot(chat_id=chat_id).send_message(f"ℹ️ <b>ABOUT</b>\n\n{BOT_TITLE} — VIP Signal Bot V1.")
