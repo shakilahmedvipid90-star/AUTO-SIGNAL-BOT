@@ -1,10 +1,10 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
+- Persistent VIP JSON Storage (Never loses VIP users on code update)
 - Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
-- Auto-Deletes previous Choppy/High-Risk Alert message upon new valid signal
-- Anti-Spam Choppy Alert Guard
-- Balanced Multi-Confluence Scanner (BB Extremes + EMA 9 Pullback + 15% Wick)
+- Auto-Deletes previous Choppy/High-Risk Alert message upon new scan/signal
+- Balanced Multi-Confluence Scanner (BB Extremes + EMA 9 Pullback + 20% Wick)
 - Auto-Updating Partial Scorecard with Cumulative P/L
 """
 
@@ -115,11 +115,8 @@ recent_pair_history = {}
 active_scheduled_sessions = {}  
 active_quick_sessions = {}      
 
-# State trackers for Anti-Spam & Auto-Delete
 choppy_alert_active = {}
 last_choppy_msg_ids = {}
-
-# Recovery Money Management State per chat/channel: {"trade": 1.0, "mtg": 2.0}
 chat_trade_stakes = {}
 
 user_active_menu_msg = {}
@@ -596,7 +593,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (15% Confirmation)
+        # 3. REJECTION WICK RATIO (Restored to 20% Strict Confirmation)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -615,19 +612,19 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 15% Lower Wick
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 20% Lower Wick
         if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 66 and buyer_power >= 50.0:
             is_lower_touch = lows[-1] <= bb_lower * 1.0008 or lows[-1] <= ema9[-1] * 1.0003
             is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
-            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.15:
+            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.20:
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
                 candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
-        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 15% Upper Wick
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 20% Upper Wick
         elif (neural_trend_bullish is None or not neural_trend_bullish) and 34 < rsi_val < 62 and seller_power >= 50.0:
             is_upper_touch = highs[-1] >= bb_upper * 0.9992 or highs[-1] >= ema9[-1] * 0.9997
             is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
-            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.15:
+            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.20:
                 confluence_score = seller_power + (upper_wick_ratio * 40)
                 candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Core-V1] (Power:{seller_power:.0f}%, Index:92%)"))
 
@@ -894,16 +891,18 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     if scan_msg_id:
         bot_instance.delete_message(scan_msg_id)
 
-    # ANTI-SPAM: Send warning only once and track message ID
+    # ANTI-SPAM & AUTO-DELETE OLD CHOPPY ALERT
     if selected_pair is None or direction is None:
-        if not choppy_alert_active.get(c_id_str, False):
-            m_id = bot_instance.send_message(build_choppy_alert_card())
-            if m_id:
-                last_choppy_msg_ids[c_id_str] = m_id
-            choppy_alert_active[c_id_str] = True
+        if c_id_str in last_choppy_msg_ids:
+            bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
+        
+        m_id = bot_instance.send_message(build_choppy_alert_card())
+        if m_id:
+            last_choppy_msg_ids[c_id_str] = m_id
+        choppy_alert_active[c_id_str] = True
         return None
 
-    # AUTO-DELETE OLD CHOPPY ALERT: Remove previous alert before displaying new signal
+    # Remove previous choppy alert right before posting a valid signal
     if c_id_str in last_choppy_msg_ids:
         bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
     choppy_alert_active[c_id_str] = False
@@ -1046,10 +1045,8 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 outcome_status = "WIN"
                 trade_pnl = current_trade_amt * PAYOUT_RATIO
                 single_ret = f"+${trade_pnl:.2f}"
-                # WIN resets stakes to normal base
                 set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
-                # Wait for MTG candle finish
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while datetime.now(user_tz) < mtg_settle_dt and session_info.get("is_running", False):
                     time.sleep(1)
@@ -1062,13 +1059,11 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                     outcome_status = "MTG"
                     trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
                     single_ret = f"+${trade_pnl:.2f}"
-                    # MTG WIN resets stakes to normal base
                     set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    # LOSS triggers Recovery Mode ($3 Trade / $6 MTG)
                     set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
@@ -1690,7 +1685,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Auto-Delete Alert & Recovery MM Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Persistent VIP Storage & 20% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
@@ -1746,12 +1741,20 @@ def run_server():
                                     can_s = has_schedule_access(target)
                                     u_auto = get_user_daily_usage(target, user_tz)
                                     u_fut = get_future_daily_usage(target, user_tz)
+                                    
+                                    today_str = datetime.now(user_tz).strftime("%Y-%m-%d")
+                                    d_history = load_json(HISTORY_FILE).get(target, {}).get(today_str, {"win": 0, "mtg": 0, "loss": 0})
+                                    w_cnt = d_history.get("win", 0)
+                                    m_cnt = d_history.get("mtg", 0)
+                                    l_cnt = d_history.get("loss", 0)
+
                                     audit_msg = (
                                         f"🔍 <b>USER AUDIT REPORT:</b> <code>{target}</code>\n"
                                         f"━━━━━━━━━━━━━━━━━━━\n"
                                         f"💎 <b>VIP Status:</b> {'👑 ACTIVE (Unlimited)' if is_v else '🆓 FREE TIER'}\n"
                                         f"⏱ <b>Schedule Access:</b> {'✅ GRANTED' if can_s else '🔒 RESTRICTED'}\n"
                                         f"🤖 <b>Auto Mode Used Today:</b> <code>{u_auto} signals</code>\n"
+                                        f"📊 <b>Today's Results:</b> 🟢 <b>{w_cnt} Win</b> | 🟡 <b>{m_cnt} MTG</b> | 🔴 <b>{l_cnt} Loss</b>\n"
                                         f"🍥 <b>Future Batches Used:</b> <code>{u_fut} batch</code>\n"
                                         f"━━━━━━━━━━━━━━━━━━━"
                                     )
@@ -1766,7 +1769,7 @@ def run_server():
                                     if target not in vip_users:
                                         vip_users.append(target)
                                         save_vip_users(vip_users)
-                                    TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(f"✅ <b>User Added to VIP:</b> <code>{target}</code>")
+                                    TelegramBot(chat_id=ADMIN_CHAT_ID).send_message(f"✅ <b>User Added to VIP (Persistent):</b> <code>{target}</code>")
                                 continue
 
                             elif text.startswith("/remove"):
