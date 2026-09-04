@@ -81,11 +81,11 @@ MTG_TRADE_AMOUNT = 20.00
 PAYOUT_RATIO = 0.85
 
 QUOTEX_OTC_ASSETS = [
-    "USDZAR_otc", "AUDNZD_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc", 
-    "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc", "USDINR_otc", 
-    "USDNGN_otc", "USDARS_otc", "USDDZD_otc", "USDMXN_otc", "CADCHF_otc", 
-    "GBPNZD_otc", "NZDCAD_otc", "NZDJPY_otc", "EURNZD_otc", "NZDUSD_otc", 
-    "USDEGP_otc", "AUDCAD_otc"
+    "USDZAR_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc",
+     "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc",
+    "USDINR_otc", "USDNGN_otc", "USDARS_otc", "USDMXN_otc",
+    "CADCHF_otc", "GBPNZD_otc", "NZDCAD_otc", "NZDUSD_otc",
+    "USDEGP_otc", "USDDZD_otc"
 ]
 
 POCKET_OPTION_OTC_ASSETS = [
