@@ -1,8 +1,9 @@
 #!/usr/init/env python3
 """
-👑 MD SUMON TRADING BOT — QUANTUM NEURAL & BB REJECTION VIP ENGINE
+👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ADAPTIVE CHOP-FILTER VIP ENGINE
 - Pure Quantum Analysis & Neural Trend Directional Flow
 - Bollinger Band Upper/Lower Rejection + EMA 9 Pullback & Bounce Logic
+- Adaptive Choppy & Ranging Market Noise Filter (Prevents Late-Session Losses)
 - Multi-Timeframe Neural Alignment (5-Min & 1-Min)
 - Stealth VIP Schedule & Automated Multi-Broker Sync
 """
@@ -297,7 +298,7 @@ def save_user_schedule(chat_id, schedule_data):
     data[c_id].append(schedule_data)
     save_json(SCHEDULE_SAVED_FILE, data)
 
-# ================= QUANTUM ANALYSIS & NEURAL BB REJECTION ENGINE =================
+# ================= QUANTUM ANALYSIS & ADAPTIVE CHOP-FILTER ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -328,10 +329,11 @@ def calculate_ema(values, period):
 
 def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
     """
-    Quantum Neural & Bollinger Band Rejection Engine:
-    1. Bollinger Band Upper/Lower Rejection + EMA 9 Pullback & Bounce.
-    2. Multi-Timeframe Neural Trend Alignment (5-Minute + 1-Minute).
-    3. 8-Minute Loss Cooldown Shield.
+    Quantum Neural & BB Rejection Engine with Adaptive Choppy / Ranging Noise Filter:
+    1. Blocks signals automatically when market transitions to choppy/ranging compression.
+    2. Bollinger Band Upper/Lower Rejection + EMA 9 Pullback & Bounce.
+    3. Multi-Timeframe Neural Trend Alignment (5-Minute + 1-Minute).
+    4. 8-Minute Loss Cooldown Shield.
     """
     now_ts = time.time()
     chat_key = str(chat_id) if chat_id else "global"
@@ -363,6 +365,18 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         opens = [float(c["open"]) for c in recent_candles]
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
+
+        # ================= ADAPTIVE CHOPPY & RANGING MARKET FILTER =================
+        # Blocks late-session or exhausted flat markets where tiny doji/overlapping chop occurs
+        recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
+        recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
+        avg_body = sum(recent_bodies) / len(recent_bodies)
+        avg_range = sum(recent_ranges) / len(recent_ranges)
+        
+        # If average candle body is too small compared to total range, market is chopping / consolidating sideways
+        if avg_range > 0 and (avg_body / avg_range) < 0.28:
+            continue
+        # =========================================================================
 
         # Doji & Tiny Body Rejection Filter
         candle_range = highs[-1] - lows[-1]
@@ -727,10 +741,10 @@ def build_partial_scoreboard_text(chat_id, user_tz):
 def build_scanning_card():
     return (
         "───────────────✦───────────────\n"
-        " 🧠 <b>QUANTUM BB REJECTION SCANNER</b> 🔮\n"
+        " 🧠 <b>ADAPTIVE CHOP-FILTER SCANNER</b> 🔮\n"
         "───────────────✦───────────────\n"
-        " 🛡 <b>Shield:</b> <code>Anti-Reversal Guard Active</code>\n"
-        " ⚡ <b>Scanning:</b> <i>BB Rejection & EMA 9 Bounce...</i>\n"
+        " 🛡 <b>Shield:</b> <code>Anti-Choppy Guard Active</code>\n"
+        " ⚡ <b>Scanning:</b> <i>Filtering noise & BB rejection...</i>\n"
         " ⏳ <i>Please wait a few seconds...</i>\n"
         "───────────────✦───────────────"
     )
@@ -747,7 +761,7 @@ def build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm
         f"⏰ <b>ENTRY TIME:</b> <code>{entry_str}</code>\n"
         f"⌛ <b>DURATION:</b> <b>1 MINUTE</b>\n"
         f"───────────────────────\n"
-        f"⚡ <b>CONFIDENCE:</b> <code>{confidence}% [BB REJECTION GRADE]</code>\n"
+        f"⚡ <b>CONFIDENCE:</b> <code>{confidence}% [ADAPTIVE CHOP-FREE]</code>\n"
         f"🧠 <b>ALGORITHM:</b> <code>{algorithm_tag}</code>\n"
         f"🌐 <b>TIMEZONE:</b> <code>{tz_str} (Synced)</code>\n"
         f"═══════════════════════\n"
@@ -812,7 +826,7 @@ def build_vip_activated_notification_card():
         "🎉 <b>Congratulations!</b> Your account has been upgraded to <b>VIP ACCESS</b>.\n\n"
         "💎 <b>UNLOCKED PRIVILEGES:</b>\n"
         "• ♾ <b>Unlimited Auto Signal Engine</b>\n"
-        "• 🔮 <b>Quantum BB Rejection Future Mode</b>\n"
+        "• 🔮 <b>Adaptive Chop-Free Future Mode</b>\n"
         "• ⚡ <b>Ultra-Low Latency Live Candle Sync</b>\n"
         "• 🛡 <b>Full Martingale Risk Protection</b>\n"
         "━━━━━━━━━━━━━━━━━━━\n"
@@ -829,7 +843,7 @@ def build_limit_exceeded_card():
         f"⚠️ Sorry! Your free daily auto signal limit has been reached for today.\n\n"
         f"💎 <b>Upgrade to VIP Membership for Unlimited Access:</b>\n"
         f"• ♾ Unlimited Auto Signal Engine\n"
-        f"• 🔮 Quantum BB Rejection Future Mode\n"
+        f"• 🔮 Adaptive Chop-Free Future Mode\n"
         f"• ⚡ Real-Time Live Candle Sync & Full Risk Protection\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💬 <b>Contact for VIP Access & Upgrades:</b>\n"
@@ -1084,7 +1098,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         f"🚀 <b>VIP SIGNAL SESSION STARTED NOW!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🌐 <b>Market:</b> <code>{m_label}</code>\n"
-        f"🎯 <b>Setups:</b> <code>Quantum BB Rejection & EMA 9 Flow</code>\n"
+        f"🎯 <b>Setups:</b> <code>Adaptive Chop-Free BB Rejection Flow</code>\n"
         f"⚠️ <b>Rules:</b> <i>Follow Money Management strictly!</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━"
     )
@@ -1361,16 +1375,16 @@ def run_server():
             f"│ 👑 <b>{BOT_TITLE}</b> 👑\n"
             "│  — Next-Gen Signal System —\n"
             "╰──────────────────────╯\n\n"
-            "⚡️ <b>CORE ENGINE:</b> Strict Price Math 🤖\n"
+            "⚡️ <b>CORE ENGINE:</b> Adaptive Chop-Free Math 🤖\n"
             "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡️\n"
-            "🚀 <b>ALGORITHM:</b> Quantum BB Rejection & EMA 9 Bounce 🧠\n"
+            "🚀 <b>ALGORITHM:</b> Quantum BB Rejection & Choppy Filter 🧠\n"
             "🛡 <b>RISK CONTROL:</b> 8-Min Loss Cooldown & Martingale Protection 🔒\n"
             "🌐 <b>MARKETS:</b> Real Market, Quotex & Pocket Option OTC 📊\n"
             "⚙️ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 BB Rejection & EMA 9 High Win Rate Scanning\n"
+            "🎯 Chop-Free BB Rejection & EMA 9 High Win Rate Scanning\n"
             "🛡 Advanced Risk Shielding\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1525,7 +1539,7 @@ def run_server():
             threading.Thread(target=continuous_background_scanner, args=(chat_id, batch_data), daemon=True).start()
 
     load_and_resume_active_batches()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready with Quantum BB Rejection!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready with Adaptive Chop-Filter!")
 
     offset = None
     while True:
