@@ -2085,7 +2085,7 @@ def run_server():
                                 user_tz, tz_off = get_user_tz(chat_id)
                                 updated_text = build_exact_user_format(batch["signals"], batch["broker"], user_tz, tz_off)
                                 TelegramBot(chat_id=chat_id).edit_message(msg_id, updated_text, reply_markup={"inline_keyboard": [[{"text": "💥 REFRESH NOW", "callback_data": "btn:refresh"}, {"text": "🔮 GENERATE NEW LIST", "callback_data": "btn:gen_new"}], [{"text": "🗑 DELETE", "callback_data": "btn:del_list"}, {"text": "🏠 HOME", "callback_data": "back_to_menu"}]]})
-                        elif cb_data.successful_generation := True and cb_data == "btn:gen_new":
+                        elif cb_data == "btn:gen_new":
                             generate_and_send_batch_signals(chat_id, msg_id, username=username)
                         elif cb_data == "btn:del_list":
                             active_batches.pop(chat_id, None)
@@ -2105,7 +2105,7 @@ def run_server():
                             )
                             edit_or_send(chat_id, summary_text, {"inline_keyboard": [[{"text": "🔙 Back", "callback_data": "back_to_menu"}]]}, msg_id)
                         elif cb_data == "menu:support":
-                            TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>\nBot Handle: <a href=\"{TELEgram_URL_HANDLE if 'TELEgram_URL_HANDLE' in locals() else TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>")
+                            TelegramBot(chat_id=chat_id).send_message(f"📞 <b>SUPPORT</b>\n\nAdmin: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>\nBot Handle: <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>")
                             send_main_menu(chat_id, username=username, target_msg_id=msg_id)
                         elif cb_data.startswith("menu:about"):
                             TelegramBot(chat_id=chat_id).send_message(f"ℹ️ <b>ABOUT</b>\n\n{BOT_TITLE} — VIP Signal Bot V1.")
