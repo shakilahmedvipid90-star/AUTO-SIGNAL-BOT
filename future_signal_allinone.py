@@ -1,11 +1,11 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
-- Strict Bollinger Bands Extremes + EMA 9 Rejection Logic
-- Zero Random / Fallback Trades (High-Risk Choppy Market Alert)
-- Real-Time Money Management (Trade: $1.00 | MTG: $2.00 | Dynamic P/L)
-- Multi-Timeframe Alignment (5M Trend + 1M Precision Trigger)
-- 12-Minute Loss Isolation Shield & Zero Socket-Deadlock Architecture
+- Anti-Spam Choppy Alert (Sends notification once, then scans silently)
+- Balanced Multi-Confluence Scanner (BB Extremes + EMA 9 Pullback + 15% Wick)
+- Zero Random / Fallback Trades (Strict Quality Check)
+- Dynamic Money Management (Trade: $1.00 | MTG: $2.00 | Realtime P/L)
+- Auto-Updating Partial Scorecard with Cumulative P/L
 """
 
 import os
@@ -114,6 +114,7 @@ pair_cooldown_registry = {}
 recent_pair_history = {}        
 active_scheduled_sessions = {}  
 active_quick_sessions = {}      
+choppy_alert_active = {}  # Anti-Spam state tracker per chat/channel
 
 user_active_menu_msg = {}
 session_state = {}
@@ -139,7 +140,6 @@ class ThreadSafeXChartsClient:
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://xcharts.live/chart/",
             "Sec-Ch-Ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
-            "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
@@ -504,7 +504,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= ULTRA-STRICT ZERO-CHOP ENGINE =================
+# ================= BALANCED HIGH-ACCURACY SIGNAL ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -533,6 +533,14 @@ def calculate_ema(values, period):
     return ema
 
 def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
+    """
+    BALANCED REJECTION & CHOP FILTER:
+    - Filters sideways noise (avg_body/avg_range >= 0.30)
+    - Confirms BB extremity rejection / EMA 9 pullback
+    - Minimum 15% wick confirmation to prove real momentum
+    - Multi-timeframe trend consistency
+    - Returns None if market is genuinely choppy across all scanned pairs
+    """
     now_ts = time.time()
     chat_key = str(chat_id) if chat_id else "global"
     recent_pairs = recent_pair_history.get(chat_key, [])
@@ -557,25 +565,25 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. HARD CHOPPY FILTER (Threshold: 0.35)
+        # 1. BALANCED ANTI-CHOP FILTER (0.30 Threshold)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
         avg_range = sum(recent_ranges) / len(recent_ranges)
         
-        if avg_range <= 0 or (avg_body / avg_range) < 0.35:
+        if avg_range <= 0 or (avg_body / avg_range) < 0.30:
             continue
 
         candle_range = highs[-1] - lows[-1]
         candle_body = abs(closes[-1] - opens[-1])
-        if candle_range <= 0 or (candle_body / candle_range) < 0.28:
+        if candle_range <= 0 or (candle_body / candle_range) < 0.22:
             continue
 
         current_price = closes[-1]
         if current_price <= 0:
             continue
 
-        # 2. BOLLINGER BANDS & BANDWIDTH
+        # 2. BOLLINGER BANDS & VOLATILITY CHECK
         sma20 = sum(closes[-20:]) / 20
         variance = sum([(x - sma20) ** 2 for x in closes[-20:]]) / 20
         std_dev = variance ** 0.5
@@ -583,13 +591,13 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         bb_lower = sma20 - (2.0 * std_dev)
         band_width = (std_dev * 2) / sma20 if sma20 > 0 else 0.01
 
-        if band_width < 0.0004:
+        if band_width < 0.0002:
             continue
 
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. WICK REJECTION RATIO
+        # 3. REJECTION WICK RATIO (15% Confirmation)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -599,7 +607,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         buyer_power = (green_candles_count / 10.0) * 100.0
         seller_power = 100.0 - buyer_power
 
-        # 4. 5-MINUTE NEURAL TREND CONFIRMATION
+        # 4. 5-MINUTE NEURAL TREND CHECK
         candles_5m = xcharts.fetch_5m_candles(p, limit=15, broker_type=broker_type)
         neural_trend_bullish = None
         if candles_5m and len(candles_5m) >= 10:
@@ -608,23 +616,23 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Pierce Lower BB + Bullish Close above EMA 9 + Lower Wick >= 20%
-        if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 64 and buyer_power >= 50.0:
-            is_lower_bb_pierce = lows[-1] <= bb_lower * 1.0005
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 15% Lower Wick
+        if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 66 and buyer_power >= 50.0:
+            is_lower_touch = lows[-1] <= bb_lower * 1.0008 or lows[-1] <= ema9[-1] * 1.0003
             is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
-            if is_lower_bb_pierce and is_bullish_bounce and lower_wick_ratio >= 0.20:
+            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.15:
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
                 candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
-        # PUT Setup: Pierce Upper BB + Bearish Close below EMA 9 + Upper Wick >= 20%
-        elif (neural_trend_bullish is None or not neural_trend_bullish) and 36 < rsi_val < 62 and seller_power >= 50.0:
-            is_upper_bb_pierce = highs[-1] >= bb_upper * 0.9995
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 15% Upper Wick
+        elif (neural_trend_bullish is None or not neural_trend_bullish) and 34 < rsi_val < 62 and seller_power >= 50.0:
+            is_upper_touch = highs[-1] >= bb_upper * 0.9992 or highs[-1] >= ema9[-1] * 0.9997
             is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
-            if is_upper_bb_pierce and is_bearish_rejection and upper_wick_ratio >= 0.20:
+            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.15:
                 confluence_score = seller_power + (upper_wick_ratio * 40)
                 candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Core-V1] (Power:{seller_power:.0f}%, Index:92%)"))
 
-    # ZERO RANDOM FALLBACK: Return None if no pair passed strict confluence
+    # Return None if no pair passed the balanced quality filters
     if not candidates:
         return None, None, 0, "CHOPPY_OR_NO_SETUP"
 
@@ -678,7 +686,7 @@ def is_real_market_open():
         return False
     return True
 
-# ================= UI & MONEY MANAGEMENT SYSTEM =================
+# ================= UI & DYNAMIC P/L SCORECARDS =================
 def record_to_partial(chat_id, signal_entry):
     c_id = str(chat_id)
     if c_id not in user_partial_data:
@@ -865,6 +873,7 @@ def build_limit_exceeded_card():
 def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=False, broker_type="quotex"):
     user_tz, tz_offset = get_user_tz(chat_id)
     now_dt = datetime.now(user_tz)
+    c_id_str = str(chat_id)
 
     if pair:
         pool = [pair]
@@ -884,10 +893,15 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     if scan_msg_id:
         bot_instance.delete_message(scan_msg_id)
 
-    # ZERO RANDOM TRADE: Send Choppy/High-Risk Alert if conditions not met
+    # ANTI-SPAM LOGIC: Send alert once when entering choppy mode, then remain silent
     if selected_pair is None or direction is None:
-        bot_instance.send_message(build_choppy_alert_card())
+        if not choppy_alert_active.get(c_id_str, False):
+            bot_instance.send_message(build_choppy_alert_card())
+            choppy_alert_active[c_id_str] = True
         return None
+
+    # Reset choppy alert state upon finding a valid high-accuracy setup
+    choppy_alert_active[c_id_str] = False
 
     if not is_channel_session:
         increment_user_daily_usage(chat_id, user_tz)
@@ -995,9 +1009,9 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
         try:
             sig_meta = deliver_auto_signal(target_channel, is_channel_session=True, broker_type=broker_type)
             
-            # If choppy alert sent, wait 60s before rescanning
+            # Silent background scan when choppy (no spam)
             if not sig_meta:
-                time.sleep(60)
+                time.sleep(15)
                 continue
             
             # Wait for Primary candle finish
@@ -1091,7 +1105,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
 
             sig_meta = deliver_auto_signal(c_id, username=username, broker_type=broker_type)
             if not sig_meta:
-                time.sleep(60)
+                time.sleep(15)
                 continue
             
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
@@ -1246,7 +1260,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         try:
             sig_meta = deliver_auto_signal(target_channel, is_channel_session=True, broker_type=broker_type)
             if not sig_meta:
-                time.sleep(60)
+                time.sleep(15)
                 continue
             
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
@@ -1618,7 +1632,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Zero-Chop & Dynamic P/L Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Anti-Spam & Balanced Filter Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
