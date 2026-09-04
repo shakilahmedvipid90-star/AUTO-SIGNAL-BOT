@@ -1,10 +1,10 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
-- Anti-Spam Choppy Alert (Sends notification once, then scans silently)
+- Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
+- Auto-Deletes previous Choppy/High-Risk Alert message upon new valid signal
+- Anti-Spam Choppy Alert Guard
 - Balanced Multi-Confluence Scanner (BB Extremes + EMA 9 Pullback + 15% Wick)
-- Zero Random / Fallback Trades (Strict Quality Check)
-- Dynamic Money Management (Trade: $1.00 | MTG: $2.00 | Realtime P/L)
 - Auto-Updating Partial Scorecard with Cumulative P/L
 """
 
@@ -76,7 +76,7 @@ ALL_USERS_FILE = "all_registered_users.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1
 
-# Money Management Unit Defaults
+# Money Management Defaults
 BASE_TRADE_AMOUNT = 1.00
 MTG_TRADE_AMOUNT = 2.00
 PAYOUT_RATIO = 0.85
@@ -114,7 +114,13 @@ pair_cooldown_registry = {}
 recent_pair_history = {}        
 active_scheduled_sessions = {}  
 active_quick_sessions = {}      
-choppy_alert_active = {}  # Anti-Spam state tracker per chat/channel
+
+# State trackers for Anti-Spam & Auto-Delete
+choppy_alert_active = {}
+last_choppy_msg_ids = {}
+
+# Recovery Money Management State per chat/channel: {"trade": 1.0, "mtg": 2.0}
+chat_trade_stakes = {}
 
 user_active_menu_msg = {}
 session_state = {}
@@ -140,6 +146,7 @@ class ThreadSafeXChartsClient:
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://xcharts.live/chart/",
             "Sec-Ch-Ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"',
+            "Sec-Ch-Ua-Mobile": "?0",
             "Sec-Ch-Ua-Platform": '"Windows"',
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
@@ -533,14 +540,6 @@ def calculate_ema(values, period):
     return ema
 
 def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
-    """
-    BALANCED REJECTION & CHOP FILTER:
-    - Filters sideways noise (avg_body/avg_range >= 0.30)
-    - Confirms BB extremity rejection / EMA 9 pullback
-    - Minimum 15% wick confirmation to prove real momentum
-    - Multi-timeframe trend consistency
-    - Returns None if market is genuinely choppy across all scanned pairs
-    """
     now_ts = time.time()
     chat_key = str(chat_id) if chat_id else "global"
     recent_pairs = recent_pair_history.get(chat_key, [])
@@ -565,7 +564,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. BALANCED ANTI-CHOP FILTER (0.30 Threshold)
+        # 1. BALANCED ANTI-CHOP FILTER
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
@@ -632,7 +631,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
                 confluence_score = seller_power + (upper_wick_ratio * 40)
                 candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Core-V1] (Power:{seller_power:.0f}%, Index:92%)"))
 
-    # Return None if no pair passed the balanced quality filters
     if not candidates:
         return None, None, 0, "CHOPPY_OR_NO_SETUP"
 
@@ -686,7 +684,15 @@ def is_real_market_open():
         return False
     return True
 
-# ================= UI & DYNAMIC P/L SCORECARDS =================
+# ================= UI & RECOVERY MONEY MANAGEMENT =================
+def get_current_stakes(chat_id):
+    c_id = str(chat_id)
+    return chat_trade_stakes.get(c_id, {"trade": BASE_TRADE_AMOUNT, "mtg": MTG_TRADE_AMOUNT})
+
+def set_current_stakes(chat_id, trade_amt, mtg_amt):
+    c_id = str(chat_id)
+    chat_trade_stakes[c_id] = {"trade": float(trade_amt), "mtg": float(mtg_amt)}
+
 def record_to_partial(chat_id, signal_entry):
     c_id = str(chat_id)
     if c_id not in user_partial_data:
@@ -765,7 +771,7 @@ def build_choppy_alert_card():
         f"👑 <b>{BOT_TITLE} VIP</b> 👑"
     )
 
-def build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm_tag, entry_str, market_label="QUOTEX OTC"):
+def build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm_tag, entry_str, trade_amt, mtg_amt, market_label="QUOTEX OTC"):
     dir_emoji = "🟢" if direction in ["CALL", "BUY"] else "🔴"
     dir_text = "CALL ▲ (BUY UP)" if direction in ["CALL", "BUY"] else "PUT ▼ (SELL DOWN)"
     return (
@@ -784,32 +790,27 @@ def build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm
         f"🛡 <b>RISK PLAN:</b> <b>MAX 1-STEP MTG</b>\n"
         f"═══════════════════════\n"
         f"💵 <b>MONEY MANAGEMENT</b>\n"
-        f"💰 <b>Trade Amount  :</b> <code>${BASE_TRADE_AMOUNT:.2f}</code>\n"
-        f"🔄 <b>MTG Amount    :</b> <code>${MTG_TRADE_AMOUNT:.2f}</code>\n"
+        f"💰 <b>Trade Amount  :</b> <code>${trade_amt:.2f}</code>\n"
+        f"🔄 <b>MTG Amount    :</b> <code>${mtg_amt:.2f}</code>\n"
         f"═══════════════════════\n"
         f"🛡 <i>Status: Follow Safety Margin & Risk Rules ⚠️</i>"
     )
 
-def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins, losses, win_rate, total_pnl, market_label="QUOTEX OTC"):
+def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins, losses, win_rate, total_pnl, single_ret, next_trade_amt, market_label="QUOTEX OTC"):
     trade_call_text = "🟢 <b>BUY UP</b>" if dir_action == "CALL" else "🔴 <b>SELL DOWN</b>"
     
     if outcome_status == "WIN":
         result_title = "✅ <b>DIRECT WIN (ITM) 🎯</b>"
         profit_status = "🟩 <b>+85% PROFIT SECURED</b>"
         mtg_status = "<code>NOT REQUIRED</code>"
-        single_ret = f"+${(BASE_TRADE_AMOUNT * PAYOUT_RATIO):.2f}"
     elif outcome_status == "MTG":
         result_title = "🟡 <b>MTG WIN (ITM) 🎯</b>"
         profit_status = "🟨 <b>1-STEP RECOVERED</b>"
         mtg_status = "<code>1 STEP USED</code>"
-        mtg_net = (MTG_TRADE_AMOUNT * PAYOUT_RATIO) - BASE_TRADE_AMOUNT
-        single_ret = f"+${mtg_net:.2f}"
     else:
         result_title = "❌ <b>TRADE LOSS (OTM) 🛑</b>"
         profit_status = "🟥 <b>SESSION LOSS</b>"
         mtg_status = "<code>FAILED</code>"
-        total_loss_single = BASE_TRADE_AMOUNT + MTG_TRADE_AMOUNT
-        single_ret = f"-${total_loss_single:.2f}"
 
     pnl_sign = "+" if total_pnl >= 0 else "-"
     pnl_str = f"{pnl_sign}${abs(total_pnl):.2f}"
@@ -832,7 +833,7 @@ def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins
         f" 💵 <b>RESULT & MONEY MANAGEMENT</b>\n"
         f" 📈 <b>Return        :</b> <code>{single_ret}</code>\n"
         f" 📈 <b>Total P/L     :</b> <code>{pnl_str}</code>\n"
-        f" 💰 <b>Next Trade    :</b> <code>${BASE_TRADE_AMOUNT:.2f}</code>\n"
+        f" 💰 <b>Next Trade    :</b> <code>${next_trade_amt:.2f}</code>\n"
         f"───────────────✦───────────────\n"
         f" ✈️ <b>Telegram:</b> <a href=\"{TELEGRAM_URL_HANDLE}\">{TELEGRAM_HANDLE}</a>\n"
         f"───────────────✦───────────────\n"
@@ -893,14 +894,18 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     if scan_msg_id:
         bot_instance.delete_message(scan_msg_id)
 
-    # ANTI-SPAM LOGIC: Send alert once when entering choppy mode, then remain silent
+    # ANTI-SPAM: Send warning only once and track message ID
     if selected_pair is None or direction is None:
         if not choppy_alert_active.get(c_id_str, False):
-            bot_instance.send_message(build_choppy_alert_card())
+            m_id = bot_instance.send_message(build_choppy_alert_card())
+            if m_id:
+                last_choppy_msg_ids[c_id_str] = m_id
             choppy_alert_active[c_id_str] = True
         return None
 
-    # Reset choppy alert state upon finding a valid high-accuracy setup
+    # AUTO-DELETE OLD CHOPPY ALERT: Remove previous alert before displaying new signal
+    if c_id_str in last_choppy_msg_ids:
+        bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
     choppy_alert_active[c_id_str] = False
 
     if not is_channel_session:
@@ -922,7 +927,14 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     sign = "+" if tz_offset >= 0 else ""
     tz_str = f"UTC{sign}{int(tz_offset)}:00"
 
-    combined_card = build_vip_combined_card(clean_pair, direction, confidence, tz_str, algorithm_tag, entry_str, market_label)
+    current_stakes = get_current_stakes(c_id_str)
+    trade_amt = current_stakes["trade"]
+    mtg_amt = current_stakes["mtg"]
+
+    combined_card = build_vip_combined_card(
+        clean_pair, direction, confidence, tz_str, algorithm_tag, entry_str,
+        trade_amt, mtg_amt, market_label
+    )
     
     kb = None
     if not is_channel_session:
@@ -950,7 +962,9 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
         "dir_action": dir_action,
         "tz_str": tz_str,
         "broker_type": broker_type,
-        "market_label": market_label
+        "market_label": market_label,
+        "trade_amt": trade_amt,
+        "mtg_amt": mtg_amt
     }
 
 # ================= GUARANTEED QUICK TARGET CHANNEL WORKER =================
@@ -958,6 +972,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
     user_tz, _ = get_user_tz(admin_chat_id)
     bot_channel = TelegramBot(chat_id=target_channel)
     bot_admin = TelegramBot(chat_id=admin_chat_id)
+    t_ch_str = str(target_channel)
     
     if broker_type == "real":
         m_label = "REAL MARKET"
@@ -966,7 +981,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
     else:
         m_label = "QUOTEX OTC"
 
-    session_info = active_quick_sessions.get(str(target_channel), {
+    session_info = active_quick_sessions.get(t_ch_str, {
         "is_running": True,
         "admin_chat_id": admin_chat_id,
         "broker_type": broker_type,
@@ -974,7 +989,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
         "target_channel": target_channel
     })
     session_info["is_running"] = True
-    active_quick_sessions[str(target_channel)] = session_info
+    active_quick_sessions[t_ch_str] = session_info
     save_quick_sessions_to_disk()
 
     start_notice = (
@@ -987,7 +1002,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
     sent_notice = bot_channel.send_message(start_notice)
     if not sent_notice:
         bot_admin.send_message(f"⚠️ Warning: Could not post to <code>{target_channel}</code>. Make sure bot is Admin.")
-        active_quick_sessions.pop(str(target_channel), None)
+        active_quick_sessions.pop(t_ch_str, None)
         save_quick_sessions_to_disk()
         return
 
@@ -1002,18 +1017,22 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
         reply_markup=admin_live_kb
     )
 
-    if str(target_channel) not in user_partial_data:
-        user_partial_data[str(target_channel)] = []
+    if t_ch_str not in user_partial_data:
+        user_partial_data[t_ch_str] = []
+
+    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
 
     while session_info.get("is_running", False):
         try:
             sig_meta = deliver_auto_signal(target_channel, is_channel_session=True, broker_type=broker_type)
             
-            # Silent background scan when choppy (no spam)
             if not sig_meta:
                 time.sleep(15)
                 continue
             
+            current_trade_amt = sig_meta["trade_amt"]
+            current_mtg_amt = sig_meta["mtg_amt"]
+
             # Wait for Primary candle finish
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
             while datetime.now(user_tz) < primary_settle_dt and session_info.get("is_running", False):
@@ -1025,7 +1044,10 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
             primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
             if primary_win:
                 outcome_status = "WIN"
-                trade_pnl = BASE_TRADE_AMOUNT * PAYOUT_RATIO
+                trade_pnl = current_trade_amt * PAYOUT_RATIO
+                single_ret = f"+${trade_pnl:.2f}"
+                # WIN resets stakes to normal base
+                set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
                 # Wait for MTG candle finish
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
@@ -1038,10 +1060,16 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
                 if mtg_win:
                     outcome_status = "MTG"
-                    trade_pnl = (MTG_TRADE_AMOUNT * PAYOUT_RATIO) - BASE_TRADE_AMOUNT
+                    trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
+                    single_ret = f"+${trade_pnl:.2f}"
+                    # MTG WIN resets stakes to normal base
+                    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
-                    trade_pnl = -(BASE_TRADE_AMOUNT + MTG_TRADE_AMOUNT)
+                    trade_pnl = -(current_trade_amt + current_mtg_amt)
+                    single_ret = f"-${abs(trade_pnl):.2f}"
+                    # LOSS triggers Recovery Mode ($3 Trade / $6 MTG)
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1057,6 +1085,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
             record_signal_stats(target_channel, outcome_status, user_tz)
             wins, losses, win_rate, total_pnl = get_session_stats(target_channel)
 
+            next_stakes = get_current_stakes(t_ch_str)
             res_card = build_golden_trophy_result_card(
                 sig_meta["pair_display"], 
                 sig_meta["dir_action"], 
@@ -1065,6 +1094,8 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 losses, 
                 win_rate,
                 total_pnl,
+                single_ret,
+                next_stakes["trade"],
                 market_label=sig_meta.get("market_label", m_label)
             )
             bot_channel.send_message(res_card)
@@ -1074,7 +1105,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
             time.sleep(5)
 
     bot_channel.send_message(f"🛑 <b>Quick Target Mode Stopped for {target_channel}.</b>")
-    active_quick_sessions.pop(str(target_channel), None)
+    active_quick_sessions.pop(t_ch_str, None)
     save_quick_sessions_to_disk()
 
 # ================= AUTO MODE RUNNER =================
@@ -1082,6 +1113,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
     c_id = str(chat_id)
     user_tz, _ = get_user_tz(c_id)
     bot_instance = TelegramBot(chat_id=c_id)
+    set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
     
     while auto_mode_users.get(c_id, False):
         try:
@@ -1108,6 +1140,9 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                 time.sleep(15)
                 continue
             
+            current_trade_amt = sig_meta["trade_amt"]
+            current_mtg_amt = sig_meta["mtg_amt"]
+
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
             while auto_mode_users.get(c_id, False):
                 if datetime.now(user_tz) >= primary_settle_dt:
@@ -1120,7 +1155,9 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
             primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
             if primary_win:
                 outcome_status = "WIN"
-                trade_pnl = BASE_TRADE_AMOUNT * PAYOUT_RATIO
+                trade_pnl = current_trade_amt * PAYOUT_RATIO
+                single_ret = f"+${trade_pnl:.2f}"
+                set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while auto_mode_users.get(c_id, False):
@@ -1134,10 +1171,14 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                 mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
                 if mtg_win:
                     outcome_status = "MTG"
-                    trade_pnl = (MTG_TRADE_AMOUNT * PAYOUT_RATIO) - BASE_TRADE_AMOUNT
+                    trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
+                    single_ret = f"+${trade_pnl:.2f}"
+                    set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
-                    trade_pnl = -(BASE_TRADE_AMOUNT + MTG_TRADE_AMOUNT)
+                    trade_pnl = -(current_trade_amt + current_mtg_amt)
+                    single_ret = f"-${abs(trade_pnl):.2f}"
+                    set_current_stakes(c_id, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1153,6 +1194,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
             record_signal_stats(c_id, outcome_status, user_tz)
             wins, losses, win_rate, total_pnl = get_session_stats(c_id)
 
+            next_stakes = get_current_stakes(c_id)
             res_card = build_golden_trophy_result_card(
                 sig_meta["pair_display"], 
                 sig_meta["dir_action"], 
@@ -1161,6 +1203,8 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                 losses, 
                 win_rate,
                 total_pnl,
+                single_ret,
+                next_stakes["trade"],
                 market_label=sig_meta.get("market_label", "QUOTEX OTC")
             )
             bot_instance.send_message(res_card)
@@ -1174,6 +1218,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
     user_tz, _ = get_user_tz(admin_chat_id)
     bot_channel = TelegramBot(chat_id=target_channel)
     bot_admin = TelegramBot(chat_id=admin_chat_id)
+    t_ch_str = str(target_channel)
     
     if broker_type == "real":
         m_label = "REAL MARKET"
@@ -1190,7 +1235,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         "target_channel": target_channel,
         "end_dt": end_dt
     }
-    active_scheduled_sessions[str(target_channel)] = session_info
+    active_scheduled_sessions[t_ch_str] = session_info
 
     start_time_str = start_dt.strftime("%H:%M")
 
@@ -1242,7 +1287,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         time.sleep(2)
 
     if not session_info["is_running"]:
-        active_scheduled_sessions.pop(str(target_channel), None)
+        active_scheduled_sessions.pop(t_ch_str, None)
         return
 
     session_start_msg = (
@@ -1254,7 +1299,8 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
     )
     bot_channel.send_message(session_start_msg)
 
-    user_partial_data[str(target_channel)] = []
+    user_partial_data[t_ch_str] = []
+    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
     
     while datetime.now(user_tz) < end_dt and session_info["is_running"]:
         try:
@@ -1263,6 +1309,9 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 time.sleep(15)
                 continue
             
+            current_trade_amt = sig_meta["trade_amt"]
+            current_mtg_amt = sig_meta["mtg_amt"]
+
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
             while datetime.now(user_tz) < primary_settle_dt and datetime.now(user_tz) < end_dt and session_info["is_running"]:
                 time.sleep(1)
@@ -1273,7 +1322,9 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
             primary_win = evaluate_primary_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
             if primary_win:
                 outcome_status = "WIN"
-                trade_pnl = BASE_TRADE_AMOUNT * PAYOUT_RATIO
+                trade_pnl = current_trade_amt * PAYOUT_RATIO
+                single_ret = f"+${trade_pnl:.2f}"
+                set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while datetime.now(user_tz) < mtg_settle_dt and datetime.now(user_tz) < end_dt and session_info["is_running"]:
@@ -1285,10 +1336,14 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 mtg_win = evaluate_mtg_candle(sig_meta["pair_raw"], sig_meta["entry_dt"], sig_meta["direction"], broker_type=broker_type)
                 if mtg_win:
                     outcome_status = "MTG"
-                    trade_pnl = (MTG_TRADE_AMOUNT * PAYOUT_RATIO) - BASE_TRADE_AMOUNT
+                    trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
+                    single_ret = f"+${trade_pnl:.2f}"
+                    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
-                    trade_pnl = -(BASE_TRADE_AMOUNT + MTG_TRADE_AMOUNT)
+                    trade_pnl = -(current_trade_amt + current_mtg_amt)
+                    single_ret = f"-${abs(trade_pnl):.2f}"
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1304,6 +1359,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
             record_signal_stats(target_channel, outcome_status, user_tz)
             wins, losses, win_rate, total_pnl = get_session_stats(target_channel)
 
+            next_stakes = get_current_stakes(t_ch_str)
             res_card = build_golden_trophy_result_card(
                 sig_meta["pair_display"], 
                 sig_meta["dir_action"], 
@@ -1312,6 +1368,8 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 losses, 
                 win_rate,
                 total_pnl,
+                single_ret,
+                next_stakes["trade"],
                 market_label=sig_meta.get("market_label", m_label)
             )
             bot_channel.send_message(res_card)
@@ -1328,7 +1386,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
         f"👑 <b>{BOT_TITLE} VIP</b> 👑"
     )
 
-    active_scheduled_sessions.pop(str(target_channel), None)
+    active_scheduled_sessions.pop(t_ch_str, None)
 
 # ================= FUTURE BATCH RUNNER =================
 def build_exact_user_format(signals, broker_name="REAL MARKET", user_tz=None, tz_offset=4):
@@ -1537,14 +1595,14 @@ def run_server():
             "⚡️ <b>CORE ENGINE:</b> Quantum Multi-Pair Top Confluence 🤖\n"
             "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡️\n"
             "🚀 <b>ALGORITHM:</b> Ultra Wick & Anti-Chop Confluence Matrix 🧠\n"
-            "🛡 <b>RISK CONTROL:</b> 12-Min Loss Shield & Max 1-Step Protection 🔒\n"
+            "🛡 <b>RISK CONTROL:</b> 12-Min Loss Shield & Dynamic Recovery MM 🔒\n"
             "🌐 <b>MARKETS:</b> Real Market, Quotex & Pocket Option OTC 📊\n"
             "⚙️ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Global All-Pair Confluence Scanning (#1 Ranked Asset Only)\n"
-            "🛡 Dynamic Wick Rejection & Loss Shielding\n"
+            "🎯 Dynamic Loss Recovery ($1/$2 ➔ $3/$6 on Loss)\n"
+            "🛡 Auto-Cleans Choppy Notice on Valid Setup\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
             '🔥 <i>"Step into the future of precision trading."</i> 🔥\n\n'
@@ -1632,7 +1690,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Anti-Spam & Balanced Filter Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Auto-Delete Alert & Recovery MM Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
