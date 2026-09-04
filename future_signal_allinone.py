@@ -1,9 +1,9 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
-- Fully Translated Choppy Alert Card to English
-- Restored Strict Chop Threshold (0.35) & 20% Wick Ratio
+- Balanced Filter: Chop Threshold (0.30) & 15% Wick Ratio
 - Permanent 1st Image Style "SCANNING MARKETS" UI Card
+- English Choppy Alert Card
 - Persistent VIP JSON Storage (Never loses VIP users on code update)
 - Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
 """
@@ -508,7 +508,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= STRICT ZERO-CHOP & HIGH-ACCURACY ENGINE =================
+# ================= BALANCED HIGH-ACCURACY SIGNAL ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -561,18 +561,18 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. STRICT ANTI-CHOP FILTER (Restored to 0.35)
+        # 1. BALANCED ANTI-CHOP FILTER (Optimized to 0.30)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
         avg_range = sum(recent_ranges) / len(recent_ranges)
         
-        if avg_range <= 0 or (avg_body / avg_range) < 0.35:
+        if avg_range <= 0 or (avg_body / avg_range) < 0.30:
             continue
 
         candle_range = highs[-1] - lows[-1]
         candle_body = abs(closes[-1] - opens[-1])
-        if candle_range <= 0 or (candle_body / candle_range) < 0.28:
+        if candle_range <= 0 or (candle_body / candle_range) < 0.22:
             continue
 
         current_price = closes[-1]
@@ -587,13 +587,13 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         bb_lower = sma20 - (2.0 * std_dev)
         band_width = (std_dev * 2) / sma20 if sma20 > 0 else 0.01
 
-        if band_width < 0.0004:
+        if band_width < 0.0002:
             continue
 
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (20% Strict Confirmation)
+        # 3. REJECTION WICK RATIO (Optimized to 15% to catch valid trends)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -612,19 +612,19 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 20% Lower Wick
-        if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 64 and buyer_power >= 50.0:
-            is_lower_touch = lows[-1] <= bb_lower * 1.0005 or lows[-1] <= ema9[-1] * 1.0002
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 15% Lower Wick
+        if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 66 and buyer_power >= 50.0:
+            is_lower_touch = lows[-1] <= bb_lower * 1.0008 or lows[-1] <= ema9[-1] * 1.0003
             is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
-            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.20:
+            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.15:
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
                 candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
-        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 20% Upper Wick
-        elif (neural_trend_bullish is None or not neural_trend_bullish) and 36 < rsi_val < 62 and seller_power >= 50.0:
-            is_upper_touch = highs[-1] >= bb_upper * 0.9995 or highs[-1] <= ema9[-1] * 0.9998
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 15% Upper Wick
+        elif (neural_trend_bullish is None or not neural_trend_bullish) and 34 < rsi_val < 62 and seller_power >= 50.0:
+            is_upper_touch = highs[-1] >= bb_upper * 0.9992 or highs[-1] >= ema9[-1] * 0.9997
             is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
-            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.20:
+            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.15:
                 confluence_score = seller_power + (upper_wick_ratio * 40)
                 candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Core-V1] (Power:{seller_power:.0f}%, Index:92%)"))
 
@@ -1690,7 +1690,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (English Choppy Alert & Strict Filter Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Balanced 0.30 Chop & 15% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
