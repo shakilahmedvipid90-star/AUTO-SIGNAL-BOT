@@ -1,6 +1,7 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
+- Updated Quotex OTC Asset Pool as requested
 - Scaled Money Management ($10 Base / $20 MTG | Recovery: $30 / $60)
 - Balanced Filter: Chop Threshold (0.30) & 15% Wick Ratio
 - Permanent "SCANNING MARKETS" UI Card & English Alerts
@@ -80,12 +81,12 @@ BASE_TRADE_AMOUNT = 10.00
 MTG_TRADE_AMOUNT = 20.00
 PAYOUT_RATIO = 0.85
 
+# Updated Quotex OTC Asset List
 QUOTEX_OTC_ASSETS = [
-    "USDZAR_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc",
-     "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc",
-    "USDINR_otc", "USDNGN_otc", "USDARS_otc", "USDMXN_otc",
-    "CADCHF_otc", "GBPNZD_otc", "NZDCAD_otc", "NZDUSD_otc",
-    "USDEGP_otc", "USDDZD_otc"
+    "USDZAR_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc", 
+    "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc", "USDINR_otc", 
+    "USDNGN_otc", "USDARS_otc", "USDMXN_otc", "CADCHF_otc", 
+    "GBPNZD_otc", "NZDCAD_otc", "NZDUSD_otc", "USDEGP_otc", "USDDZD_otc"
 ]
 
 POCKET_OPTION_OTC_ASSETS = [
@@ -1687,7 +1688,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Scaled $10/$20 MM Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Updated OTC Assets & $10/$20 MM Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
