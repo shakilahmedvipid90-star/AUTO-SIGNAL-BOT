@@ -1,6 +1,7 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
+- Permanent 1st Image Style "SCANNING MARKETS" UI Card
 - Persistent VIP JSON Storage (Never loses VIP users on code update)
 - Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
 - Auto-Deletes previous Choppy/High-Risk Alert message upon new scan/signal
@@ -593,7 +594,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (Restored to 20% Strict Confirmation)
+        # 3. REJECTION WICK RATIO (20% Strict Confirmation)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -748,13 +749,12 @@ def build_partial_scoreboard_text(chat_id, user_tz):
 
 def build_scanning_card():
     return (
-        "───────────────✦───────────────\n"
-        " 🧠 <b>QUANTUM MULTI-PAIR SCANNER V3</b> 🔮\n"
-        "───────────────✦───────────────\n"
-        " 🛡 <b>Shield:</b> <code>Ultra Wick & Anti-Chop Guard</code>\n"
-        " ⚡ <b>Scanning:</b> <i>Selecting Highest Accuracy Pair...</i>\n"
-        " ⏳ <i>Please wait a few seconds...</i>\n"
-        "───────────────✦───────────────"
+        "🌐 <b>SCANNING MARKETS</b>\n"
+        "────────────────────────\n"
+        "⏳ Scanning market assets &\n"
+        "calculating technical indicators...\n\n"
+        "⚡ Engine: Fetching real-time\n"
+        "candlestick feeds..."
     )
 
 def build_choppy_alert_card():
@@ -884,6 +884,11 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
             pool = QUOTEX_OTC_ASSETS
 
     bot_instance = TelegramBot(chat_id=chat_id)
+
+    # Delete previous choppy alert if it exists
+    if c_id_str in last_choppy_msg_ids:
+        bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
+
     scan_msg_id = bot_instance.send_message(build_scanning_card())
 
     selected_pair, direction, confidence, algorithm_tag = analyze_best_pair_and_trend(pool, broker_type=broker_type, chat_id=chat_id)
@@ -1047,6 +1052,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 single_ret = f"+${trade_pnl:.2f}"
                 set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
+                # Wait for MTG candle finish
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while datetime.now(user_tz) < mtg_settle_dt and session_info.get("is_running", False):
                     time.sleep(1)
@@ -1685,7 +1691,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Persistent VIP Storage & 20% Wick Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Scanning Markets UI & 20% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
