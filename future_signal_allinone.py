@@ -5,7 +5,7 @@
 - Permanent 1st Image Style "SCANNING MARKETS" UI Card
 - English Choppy Alert Card
 - Persistent VIP JSON Storage (Never loses VIP users on code update)
-- Dynamic Full-Loss Recovery Money Management ($10/$20 -> Dynamic Recovery)
+- Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
 """
 
 import os
@@ -76,7 +76,7 @@ ALL_USERS_FILE = "all_registered_users.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1
 
-# Money Management Defaults (Updated to $10 / $20)
+# Money Management Defaults
 BASE_TRADE_AMOUNT = 10.00
 MTG_TRADE_AMOUNT = 20.00
 PAYOUT_RATIO = 0.85
@@ -110,7 +110,7 @@ LIVE_REAL_PAIRS = [
     "USDCAD", "USDCHF"
 ]
 
-pair_cooldown_registry = {}      
+pair_cooldown_registry = {}     
 recent_pair_history = {}        
 active_scheduled_sessions = {}  
 active_quick_sessions = {}      
@@ -118,7 +118,6 @@ active_quick_sessions = {}
 choppy_alert_active = {}
 last_choppy_msg_ids = {}
 chat_trade_stakes = {}
-cumulative_losses = {} # ডাইনামিক রিকভারির জন্য লস জমানোর রেজিস্ট্রি
 
 user_active_menu_msg = {}
 session_state = {}
@@ -562,6 +561,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
+        # 1. BALANCED ANTI-CHOP FILTER (Optimized to 0.30)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
@@ -579,6 +579,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         if current_price <= 0:
             continue
 
+        # 2. BOLLINGER BANDS & VOLATILITY CHECK
         sma20 = sum(closes[-20:]) / 20
         variance = sum([(x - sma20) ** 2 for x in closes[-20:]]) / 20
         std_dev = variance ** 0.5
@@ -592,6 +593,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
+        # 3. REJECTION WICK RATIO (Optimized to 15% to catch valid trends)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -601,6 +603,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         buyer_power = (green_candles_count / 10.0) * 100.0
         seller_power = 100.0 - buyer_power
 
+        # 4. 5-MINUTE NEURAL TREND CHECK
         candles_5m = xcharts.fetch_5m_candles(p, limit=15, broker_type=broker_type)
         neural_trend_bullish = None
         if candles_5m and len(candles_5m) >= 10:
@@ -609,6 +612,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 15% Lower Wick
         if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 66 and buyer_power >= 50.0:
             is_lower_touch = lows[-1] <= bb_lower * 1.0008 or lows[-1] <= ema9[-1] * 1.0003
             is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
@@ -616,6 +620,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
                 candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 15% Upper Wick
         elif (neural_trend_bullish is None or not neural_trend_bullish) and 34 < rsi_val < 62 and seller_power >= 50.0:
             is_upper_touch = highs[-1] >= bb_upper * 0.9992 or highs[-1] >= ema9[-1] * 0.9997
             is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
@@ -676,24 +681,14 @@ def is_real_market_open():
         return False
     return True
 
-# ================= UI & DYNAMIC RECOVERY MONEY MANAGEMENT =================
-def calculate_dynamic_stakes(chat_id):
-    c_id = str(chat_id)
-    backlog_loss = cumulative_losses.get(c_id, 0.0)
-    
-    if backlog_loss <= 0:
-        # স্বাভাবিক অবস্থা: $10 এবং MTG $20
-        return BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT
-    else:
-        # ডাইনামিক রিকভারি: পেছনের টোটাল লস কভার করে প্রফিটসহ তুলে আনার হিসাব
-        needed_trade = (backlog_loss / PAYOUT_RATIO) + BASE_TRADE_AMOUNT
-        trade_amt = round(max(BASE_TRADE_AMOUNT, needed_trade), 2)
-        mtg_amt = round(trade_amt * 2.0, 2)
-        return trade_amt, mtg_amt
-
+# ================= UI & RECOVERY MONEY MANAGEMENT =================
 def get_current_stakes(chat_id):
-    trade_amt, mtg_amt = calculate_dynamic_stakes(chat_id)
-    return {"trade": trade_amt, "mtg": mtg_amt}
+    c_id = str(chat_id)
+    return chat_trade_stakes.get(c_id, {"trade": BASE_TRADE_AMOUNT, "mtg": MTG_TRADE_AMOUNT})
+
+def set_current_stakes(chat_id, trade_amt, mtg_amt):
+    c_id = str(chat_id)
+    chat_trade_stakes[c_id] = {"trade": float(trade_amt), "mtg": float(mtg_amt)}
 
 def record_to_partial(chat_id, signal_entry):
     c_id = str(chat_id)
@@ -889,6 +884,7 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
 
     bot_instance = TelegramBot(chat_id=chat_id)
 
+    # Delete previous choppy alert if it exists
     if c_id_str in last_choppy_msg_ids:
         bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
 
@@ -899,6 +895,7 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
     if scan_msg_id:
         bot_instance.delete_message(scan_msg_id)
 
+    # ANTI-SPAM & AUTO-DELETE OLD CHOPPY ALERT
     if selected_pair is None or direction is None:
         if c_id_str in last_choppy_msg_ids:
             bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
@@ -909,6 +906,7 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
         choppy_alert_active[c_id_str] = True
         return None
 
+    # Remove previous choppy alert right before posting a valid signal
     if c_id_str in last_choppy_msg_ids:
         bot_instance.delete_message(last_choppy_msg_ids.pop(c_id_str))
     choppy_alert_active[c_id_str] = False
@@ -1025,6 +1023,8 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
     if t_ch_str not in user_partial_data:
         user_partial_data[t_ch_str] = []
 
+    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
+
     while session_info.get("is_running", False):
         try:
             sig_meta = deliver_auto_signal(target_channel, is_channel_session=True, broker_type=broker_type)
@@ -1036,6 +1036,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
             current_trade_amt = sig_meta["trade_amt"]
             current_mtg_amt = sig_meta["mtg_amt"]
 
+            # Wait for Primary candle finish
             primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=6)
             while datetime.now(user_tz) < primary_settle_dt and session_info.get("is_running", False):
                 time.sleep(1)
@@ -1048,8 +1049,9 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 outcome_status = "WIN"
                 trade_pnl = current_trade_amt * PAYOUT_RATIO
                 single_ret = f"+${trade_pnl:.2f}"
-                cumulative_losses[t_ch_str] = 0.0
+                set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
+                # Wait for MTG candle finish
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while datetime.now(user_tz) < mtg_settle_dt and session_info.get("is_running", False):
                     time.sleep(1)
@@ -1062,13 +1064,16 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                     outcome_status = "MTG"
                     trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
                     single_ret = f"+${trade_pnl:.2f}"
-                    cumulative_losses[t_ch_str] = 0.0
+                    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    current_loss_total = current_trade_amt + current_mtg_amt
-                    cumulative_losses[t_ch_str] = cumulative_losses.get(t_ch_str, 0.0) + current_loss_total
+                    total_previous_loss = abs(trade_pnl)
+                    required_profit = total_previous_loss + BASE_TRADE_AMOUNT
+                    next_base = required_profit / PAYOUT_RATIO
+                    next_mtg = next_base * 2
+                    set_current_stakes(t_ch_str, round(next_base, 2), round(next_mtg, 2))
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1112,6 +1117,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
     c_id = str(chat_id)
     user_tz, _ = get_user_tz(c_id)
     bot_instance = TelegramBot(chat_id=c_id)
+    set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
     
     while auto_mode_users.get(c_id, False):
         try:
@@ -1155,7 +1161,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                 outcome_status = "WIN"
                 trade_pnl = current_trade_amt * PAYOUT_RATIO
                 single_ret = f"+${trade_pnl:.2f}"
-                cumulative_losses[c_id] = 0.0
+                set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while auto_mode_users.get(c_id, False):
@@ -1171,13 +1177,16 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                     outcome_status = "MTG"
                     trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
                     single_ret = f"+${trade_pnl:.2f}"
-                    cumulative_losses[c_id] = 0.0
+                    set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    current_loss_total = current_trade_amt + current_mtg_amt
-                    cumulative_losses[c_id] = cumulative_losses.get(c_id, 0.0) + current_loss_total
+                    total_previous_loss = abs(trade_pnl)
+                    required_profit = total_previous_loss + BASE_TRADE_AMOUNT
+                    next_base = required_profit / PAYOUT_RATIO
+                    next_mtg = next_base * 2
+                    set_current_stakes(c_id, round(next_base, 2), round(next_mtg, 2))
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1299,6 +1308,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
     bot_channel.send_message(session_start_msg)
 
     user_partial_data[t_ch_str] = []
+    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
     
     while datetime.now(user_tz) < end_dt and session_info["is_running"]:
         try:
@@ -1322,7 +1332,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 outcome_status = "WIN"
                 trade_pnl = current_trade_amt * PAYOUT_RATIO
                 single_ret = f"+${trade_pnl:.2f}"
-                cumulative_losses[t_ch_str] = 0.0
+                set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
                 while datetime.now(user_tz) < mtg_settle_dt and datetime.now(user_tz) < end_dt and session_info["is_running"]:
@@ -1336,13 +1346,12 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                     outcome_status = "MTG"
                     trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
                     single_ret = f"+${trade_pnl:.2f}"
-                    cumulative_losses[t_ch_str] = 0.0
+                    set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
                 else:
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    current_loss_total = current_trade_amt + current_mtg_amt
-                    cumulative_losses[t_ch_str] = cumulative_losses.get(t_ch_str, 0.0) + current_loss_total
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1600,7 +1609,7 @@ def run_server():
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Dynamic Loss Recovery ($10/$20 ➔ Full Recovery on Loss)\n"
+            "🎯 Dynamic Loss Recovery ($1/$2 ➔ $3/$6 on Loss)\n"
             "🛡 Auto-Cleans Choppy Notice on Valid Setup\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1689,7 +1698,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Dynamic Full-Loss Recovery Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Balanced 0.30 Chop & 15% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
@@ -2069,7 +2078,7 @@ def run_server():
                             else:
                                 for idx, s in enumerate(saved, 1):
                                     h_text += f"{idx}. <code>{s.get('channel')}</code> | {s.get('market')} | {s.get('start')} - {s.get('end')}\n"
-                            edit_or_send(chat_id, h_text, {"inline_keyboard": [[{"text": "🔙", "callback_data": "menu:schedule_hub"}]]}, msg_id)
+                            edit_or_send(chat_id, h_text, {"inline_keyboard": [[{"text": "🔙 BACK", "callback_data": "menu:schedule_hub"}]]}, msg_id)
                         elif cb_data == "menu:profile":
                             send_profile_menu(chat_id, username=username, target_msg_id=msg_id)
                         elif cb_data == "menu:tz_picker":
