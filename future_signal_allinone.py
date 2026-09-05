@@ -76,7 +76,7 @@ ALL_USERS_FILE = "all_registered_users.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1
 
-# Money Management Defaults
+# Money Management Defaults (Updated to 10,20,30,60$)
 BASE_TRADE_AMOUNT = 10.00
 MTG_TRADE_AMOUNT = 20.00
 PAYOUT_RATIO = 0.85
@@ -561,7 +561,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. BALANCED ANTI-CHOP FILTER (0.30 Threshold)
+        # 1. BALANCED ANTI-CHOP FILTER (Optimized to 0.30)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
@@ -593,7 +593,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (15% Confirmation)
+        # 3. REJECTION WICK RATIO (Optimized to 15% to catch valid trends)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
