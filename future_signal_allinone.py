@@ -118,7 +118,7 @@ active_quick_sessions = {}
 choppy_alert_active = {}
 last_choppy_msg_ids = {}
 chat_trade_stakes = {}
-cumulative_losses = {} # পেছনের লস ট্র্যাক করার জন্য
+cumulative_losses = {} # ডাইনামিক রিকভারির জন্য লস জমানোর রেজিস্ট্রি
 
 user_active_menu_msg = {}
 session_state = {}
@@ -562,7 +562,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. BALANCED ANTI-CHOP FILTER (Optimized to 0.30)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
@@ -580,7 +579,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         if current_price <= 0:
             continue
 
-        # 2. BOLLINGER BANDS & VOLATILITY CHECK
         sma20 = sum(closes[-20:]) / 20
         variance = sum([(x - sma20) ** 2 for x in closes[-20:]]) / 20
         std_dev = variance ** 0.5
@@ -594,7 +592,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (Optimized to 15% to catch valid trends)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -604,7 +601,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         buyer_power = (green_candles_count / 10.0) * 100.0
         seller_power = 100.0 - buyer_power
 
-        # 4. 5-MINUTE NEURAL TREND CHECK
         candles_5m = xcharts.fetch_5m_candles(p, limit=15, broker_type=broker_type)
         neural_trend_bullish = None
         if candles_5m and len(candles_5m) >= 10:
@@ -613,7 +609,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 15% Lower Wick
         if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 66 and buyer_power >= 50.0:
             is_lower_touch = lows[-1] <= bb_lower * 1.0008 or lows[-1] <= ema9[-1] * 1.0003
             is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
@@ -621,7 +616,6 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
                 candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
-        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 15% Upper Wick
         elif (neural_trend_bullish is None or not neural_trend_bullish) and 34 < rsi_val < 62 and seller_power >= 50.0:
             is_upper_touch = highs[-1] >= bb_upper * 0.9992 or highs[-1] >= ema9[-1] * 0.9997
             is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
@@ -688,15 +682,12 @@ def calculate_dynamic_stakes(chat_id):
     backlog_loss = cumulative_losses.get(c_id, 0.0)
     
     if backlog_loss <= 0:
-        # সাধারণ স্বাভাবিক অবস্থা ($10 / $20)
+        # স্বাভাবিক অবস্থা: $10 এবং MTG $20
         return BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT
     else:
-        # পেছনের লস রিকভার করার জন্য ডাইনামিক অ্যামাউন্ট ক্যালকুলেশন
-        # বেস ট্রেড হবে এমন যাতে পেছনের লস কভার করে প্রফিট আনা যায়
+        # ডাইনামিক রিকভারি: পেছনের টোটাল লস কভার করে প্রফিটসহ তুলে আনার হিসাব
         needed_trade = (backlog_loss / PAYOUT_RATIO) + BASE_TRADE_AMOUNT
         trade_amt = round(max(BASE_TRADE_AMOUNT, needed_trade), 2)
-        
-        # এমটিজি ট্রেড অ্যামাউন্ট বেস ট্রেডের দ্বিগুণ রাখা হলো
         mtg_amt = round(trade_amt * 2.0, 2)
         return trade_amt, mtg_amt
 
@@ -811,7 +802,7 @@ def build_golden_trophy_result_card(clean_pair, dir_action, outcome_status, wins
     
     if outcome_status == "WIN":
         result_title = "✅ <b>DIRECT WIN (ITM) 🎯</b>"
-        profit_status = "🟩 <b>PROFIT SECURED</b>"
+        profit_status = "🟩 <b>+85% PROFIT SECURED</b>"
         mtg_status = "<code>NOT REQUIRED</code>"
     elif outcome_status == "MTG":
         result_title = "🟡 <b>MTG WIN (ITM) 🎯</b>"
@@ -1057,7 +1048,6 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                 outcome_status = "WIN"
                 trade_pnl = current_trade_amt * PAYOUT_RATIO
                 single_ret = f"+${trade_pnl:.2f}"
-                # সফল হলে ব্যাকলগ লস ক্লিয়ার
                 cumulative_losses[t_ch_str] = 0.0
             else:
                 mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=6)
@@ -1072,13 +1062,11 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                     outcome_status = "MTG"
                     trade_pnl = (current_mtg_amt * PAYOUT_RATIO) - current_trade_amt
                     single_ret = f"+${trade_pnl:.2f}"
-                    # এমটিজি উইন হলে ব্যাকলগ লস ক্লিয়ার
                     cumulative_losses[t_ch_str] = 0.0
                 else:
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    # টোটাল লস জমা করে রাখা হলো যাতে পরের ট্রেডে রিকভার হয়
                     current_loss_total = current_trade_amt + current_mtg_amt
                     cumulative_losses[t_ch_str] = cumulative_losses.get(t_ch_str, 0.0) + current_loss_total
 
@@ -1612,7 +1600,7 @@ def run_server():
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Dynamic Loss Recovery ($10/$20 ➔ Dynamic Recovery on Loss)\n"
+            "🎯 Dynamic Loss Recovery ($10/$20 ➔ Full Recovery on Loss)\n"
             "🛡 Auto-Cleans Choppy Notice on Valid Setup\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
