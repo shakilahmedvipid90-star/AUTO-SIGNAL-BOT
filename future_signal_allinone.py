@@ -1,11 +1,11 @@
 #!/usr/init/env python3
 """
-👑 MD SUMON TRADING BOT — QUANTUM NEURAL & FAST-SIGNAL VIP ENGINE
-- Relaxed Filter: Chop Threshold (0.20) & 10% Wick Ratio (Faster Signals)
+👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
+- Restored Strict Chop Threshold (0.35) & 20% Wick Ratio
 - Permanent 1st Image Style "SCANNING MARKETS" UI Card
-- English Choppy Alert Card
 - Persistent VIP JSON Storage (Never loses VIP users on code update)
-- Dynamic Recovery Money Management (Normal: $10/$20 | Recovery: $30/$60)
+- Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
+- Auto-Deletes previous Choppy/High-Risk Alert message upon new scan/signal
 """
 
 import os
@@ -77,8 +77,8 @@ FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1
 
 # Money Management Defaults
-BASE_TRADE_AMOUNT = 10.00
-MTG_TRADE_AMOUNT = 20.00
+BASE_TRADE_AMOUNT = 1.00
+MTG_TRADE_AMOUNT = 2.00
 PAYOUT_RATIO = 0.85
 
 QUOTEX_OTC_ASSETS = [
@@ -508,7 +508,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= FAST-SIGNAL HIGH-ACCURACY ENGINE =================
+# ================= STRICT ZERO-CHOP & HIGH-ACCURACY ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -561,18 +561,18 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. OPTIMIZED ANTI-CHOP FILTER (Relaxed to 0.20 for faster signals)
+        # 1. STRICT ANTI-CHOP FILTER (Restored to 0.35)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
         avg_range = sum(recent_ranges) / len(recent_ranges)
         
-        if avg_range <= 0 or (avg_body / avg_range) < 0.20:
+        if avg_range <= 0 or (avg_body / avg_range) < 0.35:
             continue
 
         candle_range = highs[-1] - lows[-1]
         candle_body = abs(closes[-1] - opens[-1])
-        if candle_range <= 0 or (candle_body / candle_range) < 0.15:
+        if candle_range <= 0 or (candle_body / candle_range) < 0.28:
             continue
 
         current_price = closes[-1]
@@ -587,13 +587,13 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         bb_lower = sma20 - (2.0 * std_dev)
         band_width = (std_dev * 2) / sma20 if sma20 > 0 else 0.01
 
-        if band_width < 0.0001:
+        if band_width < 0.0004:
             continue
 
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (Relaxed to 10% for frequent valid entries)
+        # 3. REJECTION WICK RATIO (Restored to 20% Strict Confirmation)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -612,21 +612,21 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
             ema21_5m = calculate_ema(closes_5m, 21)
             neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 10% Lower Wick
-        if (neural_trend_bullish is None or neural_trend_bullish) and 35 < rsi_val < 68 and buyer_power >= 48.0:
-            is_lower_touch = lows[-1] <= bb_lower * 1.0012 or lows[-1] <= ema9[-1] * 1.0005
-            is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1] * 0.9998
-            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.10:
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 20% Lower Wick
+        if (neural_trend_bullish is None or neural_trend_bullish) and 38 < rsi_val < 64 and buyer_power >= 50.0:
+            is_lower_touch = lows[-1] <= bb_lower * 1.0005 or lows[-1] <= ema9[-1] * 1.0002
+            is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
+            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.20:
                 confluence_score = buyer_power + (lower_wick_ratio * 40)
-                candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Fast-V2] (Power:{buyer_power:.0f}%, Index:92%)"))
+                candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Core-V1] (Power:{buyer_power:.0f}%, Index:92%)"))
 
-        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 10% Upper Wick
-        elif (neural_trend_bullish is None or not neural_trend_bullish) and 32 < rsi_val < 65 and seller_power >= 48.0:
-            is_upper_touch = highs[-1] >= bb_upper * 0.9988 or highs[-1] >= ema9[-1] * 0.9995
-            is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1] * 1.0002
-            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.10:
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 20% Upper Wick
+        elif (neural_trend_bullish is None or not neural_trend_bullish) and 36 < rsi_val < 62 and seller_power >= 50.0:
+            is_upper_touch = highs[-1] >= bb_upper * 0.9995 or highs[-1] <= ema9[-1] * 0.9998
+            is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
+            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.20:
                 confluence_score = seller_power + (upper_wick_ratio * 40)
-                candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Fast-V2] (Power:{seller_power:.0f}%, Index:92%)"))
+                candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Core-V1] (Power:{seller_power:.0f}%, Index:92%)"))
 
     if not candidates:
         return None, None, 0, "CHOPPY_OR_NO_SETUP"
@@ -760,9 +760,9 @@ def build_choppy_alert_card():
     return (
         "⚠️ <b>MARKET ALERT: HIGH RISK</b>  🛑\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "📉 <b>Status:</b> <code>Market is currently extremely choppy and noisy!</code>\n"
-        "🛡 <b>Decision:</b> <b>No high-accuracy entry available.</b>\n"
-        "⏳ <i>Trade skipped to protect your balance. Please wait until the market normalizes...</i>\n"
+        "📉 <b>Status:</b> <code>মার্কেট বর্তমানে চরম চাপ্পি ও নয়েজপূর্ণ!</code>\n"
+        "🛡 <b>Decision:</b> <b>কোনো হাই-এক্যুরেসি এন্ট্রি নেই।</b>\n"
+        "⏳ <i>ব্যালেন্স সুরক্ষিত রাখতে ট্রেড স্কিপ করা হলো। মার্কেট স্বাভাবিক হওয়া পর্যন্ত অপেক্ষা করুন...</i>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"👑 <b>{BOT_TITLE} VIP</b> 👑"
     )
@@ -1069,7 +1069,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    set_current_stakes(t_ch_str, 30.00, 60.00)
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1178,7 +1178,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    set_current_stakes(c_id, 30.00, 60.00)
+                    set_current_stakes(c_id, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1343,7 +1343,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    set_current_stakes(t_ch_str, 30.00, 60.00)
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1601,7 +1601,7 @@ def run_server():
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Dynamic Loss Recovery ($10/$20 ➔ $30/$60 on Loss)\n"
+            "🎯 Dynamic Loss Recovery ($1/$2 ➔ $3/$6 on Loss)\n"
             "🛡 Auto-Cleans Choppy Notice on Valid Setup\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1690,7 +1690,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Fast Signal Mode Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Strict 0.35 Chop & 20% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
