@@ -1,8 +1,7 @@
 #!/usr/init/env python3
 """
-👑 MD SUMON TRADING BOT — QUANTUM NEURAL & SWING SUPPORT/RESISTANCE VIP ENGINE
-- Advanced Swing High (Resistance) & Swing Low (Support) Zone Detection
-- Balanced Filter: Chop Threshold (0.30) & 15% Wick Ratio
+👑 MD SUMON TRADING BOT — QUANTUM NEURAL & FAST-SIGNAL VIP ENGINE
+- Fast-Signal Optimized Filter: Chop Threshold (0.20) & 10% Wick Ratio
 - Permanent 1st Image Style "SCANNING MARKETS" UI Card
 - English Choppy Alert Card
 - Persistent VIP JSON Storage (Never loses VIP users on code update)
@@ -509,7 +508,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= SWING SUPPORT/RESISTANCE & SIGNAL ENGINE =================
+# ================= FAST-SIGNAL HIGH-ACCURACY ENGINE =================
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return 50.0
@@ -537,20 +536,6 @@ def calculate_ema(values, period):
         ema.append(price * k + ema[-1] * (1 - k))
     return ema
 
-def find_swing_levels(highs, lows, window=3):
-    """Calculates Swing High (Resistance) and Swing Low (Support) zones."""
-    swing_highs = []
-    swing_lows = []
-    for i in range(window, len(highs) - window):
-        if highs[i] == max(highs[i - window:i + window + 1]):
-            swing_highs.append(highs[i])
-        if lows[i] == min(lows[i - window:i + window + 1]):
-            swing_lows.append(lows[i])
-    
-    resistance = max(swing_highs) if swing_highs else max(highs)
-    support = min(swing_lows) if swing_lows else min(lows)
-    return support, resistance
-
 def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
     now_ts = time.time()
     chat_key = str(chat_id) if chat_id else "global"
@@ -576,37 +561,39 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. ANTI-CHOP FILTER
+        # 1. FAST-SIGNAL ANTI-CHOP FILTER (0.20 Threshold)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
         avg_range = sum(recent_ranges) / len(recent_ranges)
         
-        if avg_range <= 0 or (avg_body / avg_range) < 0.25:
+        if avg_range <= 0 or (avg_body / avg_range) < 0.20:
             continue
 
         candle_range = highs[-1] - lows[-1]
         candle_body = abs(closes[-1] - opens[-1])
-        if candle_range <= 0 or (candle_body / candle_range) < 0.18:
+        if candle_range <= 0 or (candle_body / candle_range) < 0.15:
             continue
 
         current_price = closes[-1]
         if current_price <= 0:
             continue
 
-        # 2. SWING SUPPORT & RESISTANCE DETECTION
-        support_level, resistance_level = find_swing_levels(highs, lows)
-
-        # 3. TECHNICAL INDICATORS (BB, EMA, RSI, WICK)
+        # 2. BOLLINGER BANDS & VOLATILITY CHECK
         sma20 = sum(closes[-20:]) / 20
         variance = sum([(x - sma20) ** 2 for x in closes[-20:]]) / 20
         std_dev = variance ** 0.5
         bb_upper = sma20 + (2.0 * std_dev)
         bb_lower = sma20 - (2.0 * std_dev)
+        band_width = (std_dev * 2) / sma20 if sma20 > 0 else 0.01
+
+        if band_width < 0.0001:
+            continue
 
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
+        # 3. FAST-SIGNAL REJECTION WICK RATIO (10% Confirmation)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -616,21 +603,30 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         buyer_power = (green_candles_count / 10.0) * 100.0
         seller_power = 100.0 - buyer_power
 
-        # CALL Setup: Price near Support / Swing Low + Lower Wick Rejection + Bullish Bounce
-        is_near_support = lows[-1] <= support_level * 1.0015 or lows[-1] <= bb_lower * 1.001
-        if 35 < rsi_val < 68 and buyer_power >= 48.0:
-            is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1]
-            if is_near_support and is_bullish_bounce and lower_wick_ratio >= 0.12:
-                score = buyer_power + (lower_wick_ratio * 40)
-                candidates.append((score, p, "CALL", f"Swing Support Bounce [Logic-S&R] (Power:{buyer_power:.0f}%, Index:94%)"))
+        # 4. 5-MINUTE NEURAL TREND CHECK
+        candles_5m = xcharts.fetch_5m_candles(p, limit=15, broker_type=broker_type)
+        neural_trend_bullish = None
+        if candles_5m and len(candles_5m) >= 10:
+            closes_5m = [float(c["close"]) for c in candles_5m]
+            ema9_5m = calculate_ema(closes_5m, 9)
+            ema21_5m = calculate_ema(closes_5m, 21)
+            neural_trend_bullish = ema9_5m[-1] > ema21_5m[-1]
 
-        # PUT Setup: Price near Resistance / Swing High + Upper Wick Rejection + Bearish Bounce
-        is_near_resistance = highs[-1] >= resistance_level * 0.9985 or highs[-1] >= bb_upper * 0.999
-        if 32 < rsi_val < 65 and seller_power >= 48.0:
-            is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1]
-            if is_near_resistance and is_bearish_rejection and upper_wick_ratio >= 0.12:
-                score = seller_power + (upper_wick_ratio * 40)
-                candidates.append((score, p, "PUT", f"Swing Resistance Rejection [Logic-S&R] (Power:{seller_power:.0f}%, Index:94%)"))
+        # CALL Setup: Lower Band touch/EMA pullback + Bullish Candle + 10% Lower Wick
+        if (neural_trend_bullish is None or neural_trend_bullish) and 35 < rsi_val < 68 and buyer_power >= 48.0:
+            is_lower_touch = lows[-1] <= bb_lower * 1.0012 or lows[-1] <= ema9[-1] * 1.0005
+            is_bullish_bounce = closes[-1] > opens[-1] and closes[-1] >= ema9[-1] * 0.9998
+            if is_lower_touch and is_bullish_bounce and lower_wick_ratio >= 0.10:
+                confluence_score = buyer_power + (lower_wick_ratio * 40)
+                candidates.append((confluence_score, p, "CALL", f"Quantum Matrix CALL Signal [Fast-V2] (Power:{buyer_power:.0f}%, Index:92%)"))
+
+        # PUT Setup: Upper Band touch/EMA pullback + Bearish Candle + 10% Upper Wick
+        elif (neural_trend_bullish is None or not neural_trend_bullish) and 32 < rsi_val < 65 and seller_power >= 48.0:
+            is_upper_touch = highs[-1] >= bb_upper * 0.9988 or highs[-1] >= ema9[-1] * 0.9995
+            is_bearish_rejection = closes[-1] < opens[-1] and closes[-1] <= ema9[-1] * 1.0002
+            if is_upper_touch and is_bearish_rejection and upper_wick_ratio >= 0.10:
+                confluence_score = seller_power + (upper_wick_ratio * 40)
+                candidates.append((confluence_score, p, "PUT", f"Quantum Matrix PUT Rejection [Fast-V2] (Power:{seller_power:.0f}%, Index:92%)"))
 
     if not candidates:
         return None, None, 0, "CHOPPY_OR_NO_SETUP"
@@ -1598,7 +1594,7 @@ def run_server():
             "╰──────────────────────╯\n\n"
             "⚡️ <b>CORE ENGINE:</b> Quantum Multi-Pair Top Confluence 🤖\n"
             "📈 <b>SPEED:</b> Real-Time 100% Broker Match ⚡️\n"
-            "🚀 <b>ALGORITHM:</b> Ultra Wick & Anti-Chop Confluence Matrix 🧠\n"
+            "🚀 <b>ALGORITHM:</b> Fast-Signal & Anti-Chop Matrix 🧠\n"
             "🛡 <b>RISK CONTROL:</b> 12-Min Loss Shield & Dynamic Recovery MM 🔒\n"
             "🌐 <b>MARKETS:</b> Real Market, Quotex & Pocket Option OTC 📊\n"
             "⚙️ <b>AUTOMATION:</b> Live Auto-Update Results 🤖\n\n"
@@ -1694,7 +1690,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Swing Support/Resistance Logic Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Fast-Signal Mode Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
