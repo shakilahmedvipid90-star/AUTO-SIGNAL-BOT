@@ -1,11 +1,11 @@
 #!/usr/init/env python3
 """
 👑 MD SUMON TRADING BOT — QUANTUM NEURAL & ZERO-CHOP VIP ENGINE
-- Custom Quotex OTC Asset List Integration
-- Custom Money Management ($10 / $20 base & $30 / $60 recovery)
-- Balanced 0.30 Chop & 15% Wick Filter
-- Permanent 1st Image Style "SCANNING MARKETS" UI Card & English Choppy Alert
-- Persistent VIP JSON Storage
+- Balanced Filter: Chop Threshold (0.30) & 15% Wick Ratio
+- Permanent 1st Image Style "SCANNING MARKETS" UI Card
+- English Choppy Alert Card
+- Persistent VIP JSON Storage (Never loses VIP users on code update)
+- Dynamic Recovery Money Management (Normal: $1/$2 | Recovery: $3/$6)
 """
 
 import os
@@ -76,16 +76,17 @@ ALL_USERS_FILE = "all_registered_users.json"
 FREE_DAILY_AUTO_LIMIT = 5
 FREE_DAILY_FUTURE_LIMIT = 1
 
-# Custom Money Management Defaults ($10 / $20)
-BASE_TRADE_AMOUNT = 10.00
-MTG_TRADE_AMOUNT = 20.00
+# Money Management Defaults
+BASE_TRADE_AMOUNT = 1.00
+MTG_TRADE_AMOUNT = 2.00
 PAYOUT_RATIO = 0.85
 
 QUOTEX_OTC_ASSETS = [
-    "USDZAR_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc", 
+    "USDZAR_otc", "AUDNZD_otc", "NZDCHF_otc", "USDCOP_otc", "USDPHP_otc", 
     "USDIDR_otc", "USDBDT_otc", "USDPKR_otc", "USDBRL_otc", "USDINR_otc", 
-    "USDNGN_otc", "USDARS_otc", "USDMXN_otc", "CADCHF_otc", 
-    "GBPNZD_otc", "NZDCAD_otc", "NZDUSD_otc", "USDEGP_otc", "USDDZD_otc"
+    "USDNGN_otc", "USDARS_otc", "USDDZD_otc", "USDMXN_otc", "CADCHF_otc", 
+    "GBPNZD_otc", "NZDCAD_otc", "NZDJPY_otc", "EURNZD_otc", "NZDUSD_otc", 
+    "USDEGP_otc", "AUDCAD_otc"
 ]
 
 POCKET_OPTION_OTC_ASSETS = [
@@ -560,7 +561,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         highs = [float(c["high"]) for c in recent_candles]
         lows = [float(c["low"]) for c in recent_candles]
 
-        # 1. BALANCED ANTI-CHOP FILTER (0.30)
+        # 1. BALANCED ANTI-CHOP FILTER (Optimized to 0.30)
         recent_bodies = [abs(closes[i] - opens[i]) for i in range(-5, 0)]
         recent_ranges = [highs[i] - lows[i] for i in range(-5, 0)]
         avg_body = sum(recent_bodies) / len(recent_bodies)
@@ -592,7 +593,7 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         ema9 = calculate_ema(closes, 9)
         rsi_val = calculate_rsi(closes, 14)
 
-        # 3. REJECTION WICK RATIO (15%)
+        # 3. REJECTION WICK RATIO (Optimized to 15% to catch valid trends)
         upper_wick = highs[-1] - max(opens[-1], closes[-1])
         lower_wick = min(opens[-1], closes[-1]) - lows[-1]
         lower_wick_ratio = lower_wick / candle_range
@@ -680,7 +681,7 @@ def is_real_market_open():
         return False
     return True
 
-# ================= UI & RECOVERY MONEY MANAGEMENT ($10/$20 & $30/$60) =================
+# ================= UI & RECOVERY MONEY MANAGEMENT =================
 def get_current_stakes(chat_id):
     c_id = str(chat_id)
     return chat_trade_stakes.get(c_id, {"trade": BASE_TRADE_AMOUNT, "mtg": MTG_TRADE_AMOUNT})
@@ -1068,8 +1069,7 @@ def instant_channel_worker(admin_chat_id, target_channel, broker_type="quotex"):
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    # Recovery: $30 / $60
-                    set_current_stakes(t_ch_str, 30.00, 60.00)
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1178,8 +1178,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    # Recovery: $30 / $60
-                    set_current_stakes(c_id, 30.00, 60.00)
+                    set_current_stakes(c_id, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1344,8 +1343,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                     outcome_status = "LOSS"
                     trade_pnl = -(current_trade_amt + current_mtg_amt)
                     single_ret = f"-${abs(trade_pnl):.2f}"
-                    # Recovery: $30 / $60
-                    set_current_stakes(t_ch_str, 30.00, 60.00)
+                    set_current_stakes(t_ch_str, 3.00, 6.00)
 
             if outcome_status == "LOSS":
                 pair_cooldown_registry[sig_meta["pair_raw"]] = time.time() + 720
@@ -1603,7 +1601,7 @@ def run_server():
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             "<b>WHY CHOOSE MD_SUMON_MT4 BOT:</b>\n"
             "💎 100% Exact Broker Chart Sync (Zero Discrepancy)\n"
-            "🎯 Dynamic Loss Recovery ($10/$20 ➔ $30/$60 on Loss)\n"
+            "🎯 Dynamic Loss Recovery ($1/$2 ➔ $3/$6 on Loss)\n"
             "🛡 Auto-Cleans Choppy Notice on Valid Setup\n"
             "🔮 Future Signal Generator Mode\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1692,7 +1690,7 @@ def run_server():
         edit_or_send(chat_id, "🌐 <b>SELECT YOUR PREFERRED TIMEZONE (UTC):</b>", kb, target_msg_id)
 
     load_and_resume_quick_sessions()
-    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Custom $10/$20 MM & Custom Pairs Active)!")
+    print(f"🚀 {BOT_TITLE} Master Engine is Ready (Balanced 0.30 Chop & 15% Wick Active)!")
 
     try:
         requests.get(BASE + "/getUpdates", params={"offset": -1, "timeout": 1}, timeout=5)
