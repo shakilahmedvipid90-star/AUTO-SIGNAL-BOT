@@ -2,12 +2,9 @@
 """
 👑 MD SUMON TRADING BOT — OFFICIAL 100% ACCURATE VIP ENGINE (MULTI-BROKER & REAL MARKET)
 - 13-Module Quantum Confluence Matrix Core Engine
-- 100% Verified XCharts Real-Time Candle Validation & Session Auto-Sync
-- Instant Back-to-Back Signal Dispatcher (Zero Freezing / Zero Idle Delay)
-- Dynamic Scanning Text Transition Card
-- Isolated Loss-Recovery Guard ($10/$20 -> $30/$60 -> $120/$240)
-- Net PnL Scorecard System (User & Admin Quick-Transfer)
-- Graceful Shutdown/Startup Auto-Clean Lifecycle (Offline -> Online -> Auto-Purge)
+- 100% Verified XCharts Real-Time Candle Validation & Session Auto-Sync (Original Reference Engine)
+- Perfect 3-Button Layouts & Admin Quick Session Controller
+- Net PnL Scorecard System & Graceful Startup/Shutdown Offline-Online Notice Purge
 """
 
 import os
@@ -59,7 +56,7 @@ def start_background_web_server():
 threading.Thread(target=start_background_web_server, daemon=True).start()
 
 # ================= CONFIGURATION =================
-TELEGRAM_BOT_TOKEN = "8868069471:AAFRuXL3N3zX8EegNnfRHywHELM_SbiYj5U"
+TELEGRAM_BOT_TOKEN = "8700854708:AAF4yGJ4r6MGQYtard9MyASzu3nVKFgtds8"
 ADMIN_CHAT_ID = "7170071838"
 DEFAULT_TZ_OFFSET = 4  # UTC+4
 TELEGRAM_HANDLE = "@MD_SUMON_MT4"
@@ -133,7 +130,7 @@ batch_disk_lock = threading.Lock()
 config_lock = threading.Lock()
 notice_lock = threading.Lock()
 
-# ================= AUTHENTICATED XCHARTS ENGINE =================
+# ================= AUTHENTICATED XCHARTS MULTI-BROKER CLIENT (ORIGINAL WORKING ENGINE) =================
 class XChartsClient:
     def __init__(self):
         self.session = requests.Session()
@@ -157,7 +154,7 @@ class XChartsClient:
                 self.session.get("https://xcharts.live/chart/", headers={
                     "User-Agent": self.headers["User-Agent"],
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }, timeout=5)
+                }, timeout=8)
                 xsrf_cookie = self.session.cookies.get("XSRF-TOKEN")
                 if xsrf_cookie:
                     self.headers["X-Xsrf-Token"] = unquote(xsrf_cookie)
@@ -177,7 +174,7 @@ class XChartsClient:
 
         b_type = (broker_type or "quotex").lower()
         if b_type == "real":
-            return f"https://xcharts.live/api/market/forex/?symbol=frx{base}&interval=1m&limit=600"
+            return f"https://xcharts.live/api/market/forex/?symbol=frx{base}&interval=1m&limit=2000"
         elif b_type == "pocket":
             return f"https://xcharts.live/api/market/pocketoption/?symbol={base}-OTCp&interval=1m&limit=600"
         else:
@@ -187,11 +184,11 @@ class XChartsClient:
         self.ensure_session_active()
         url = self.get_api_url(pair_raw, broker_type)
         try:
-            resp = self.session.get(url, headers=self.headers, timeout=4)
+            resp = self.session.get(url, headers=self.headers, timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 candles = data.get("candles", [])
-                if candles and len(candles) >= 10:
+                if candles and len(candles) >= 15:
                     return candles
         except Exception:
             pass
@@ -208,7 +205,7 @@ class XChartsClient:
 
         for _ in range(5):
             try:
-                resp = self.session.get(url, headers=self.headers, timeout=4)
+                resp = self.session.get(url, headers=self.headers, timeout=8)
                 if resp.status_code == 200:
                     data = resp.json()
                     candles = data.get("candles", [])
@@ -224,7 +221,7 @@ class XChartsClient:
                                 }
             except Exception:
                 pass
-            time.sleep(1)
+            time.sleep(1.5)
         return None
 
 xcharts = XChartsClient()
@@ -268,11 +265,11 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         if len(recent_pairs) >= 1 and recent_pairs[-1] == p:
             continue
 
-        candles = xcharts.fetch_recent_candles(p, limit=30, broker_type=broker_type)
-        if not candles or len(candles) < 15:
+        candles = xcharts.fetch_recent_candles(p, limit=35, broker_type=broker_type)
+        if not candles or len(candles) < 20:
             continue
 
-        recent_candles = candles[-20:]
+        recent_candles = candles[-25:]
         closes = [float(c["close"]) for c in recent_candles]
         opens = [float(c["open"]) for c in recent_candles]
         highs = [float(c["high"]) for c in recent_candles]
@@ -309,9 +306,9 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         if lower_wick < (candle_body * 0.4): put_score += 20.0
         if 32 <= rsi_val <= 52: put_score += 15.0
 
-        if call_score > put_score and call_score >= 45:
+        if call_score > put_score and call_score >= 50:
             scored_candidates.append((call_score, p, "CALL", "Quantum Confluence [13-Mod Validated]"))
-        elif put_score > call_score and put_score >= 45:
+        elif put_score > call_score and put_score >= 50:
             scored_candidates.append((put_score, p, "PUT", "Quantum Confluence [13-Mod Validated]"))
 
     if scored_candidates:
@@ -319,12 +316,11 @@ def analyze_best_pair_and_trend(pair_pool, broker_type="quotex", chat_id=None):
         best_score, best_pair, best_dir, best_tag = scored_candidates[0]
     else:
         valid_pool = [p for p in pair_pool if p not in pair_cooldown_registry or now_ts >= pair_cooldown_registry[p]]
-        best_pair = random.choice(valid_pool) if valid_pool else random.choice(pair_pool)
-        candles = xcharts.fetch_recent_candles(best_pair, limit=15, broker_type=broker_type)
-        if candles and len(candles) >= 5:
-            closes = [float(c["close"]) for c in candles[-5:]]
-            opens = [float(c["open"]) for c in candles[-5:]]
-            best_dir = "CALL" if closes[-1] > opens[-1] else "PUT"
+        best_pair = valid_pool[0] if valid_pool else pair_pool[0]
+        candles = xcharts.fetch_recent_candles(best_pair, limit=20, broker_type=broker_type)
+        if candles:
+            closes = [float(c["close"]) for c in candles[-15:]]
+            best_dir = "CALL" if closes[-1] > closes[-5] else "PUT"
         else:
             best_dir = "CALL"
         best_tag = "Momentum Continuation Flow"
@@ -776,7 +772,6 @@ def broadcast_system_notice_and_track(text, notice_type="ONLINE"):
                 continue
         save_json(SYSTEM_NOTICES_FILE, notices)
 
-# Graceful Shutdown Trap
 def handle_system_shutdown(*args):
     try:
         broadcast_system_notice_and_track(build_offline_notice_card(), notice_type="OFFLINE")
@@ -845,7 +840,7 @@ class TelegramBot:
             except Exception:
                 return False
 
-# ================= CORE DISPATCHER (ZERO FREEZE) =================
+# ================= CORE DISPATCHER (ORIGINAL XCHARTS ENGINE) =================
 def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=False, broker_type="quotex"):
     purge_system_notices_for_user(chat_id)
     user_tz, tz_offset = get_user_tz(chat_id)
@@ -918,7 +913,7 @@ def deliver_auto_signal(chat_id, pair=None, username=None, is_channel_session=Fa
         "mtg_amt": mtg_amt
     }
 
-# ================= AUTO MODE RUNNER (INSTANT & THREAD-SAFE STOP) =================
+# ================= AUTO MODE RUNNER =================
 def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
     c_id = str(chat_id)
     user_tz, _ = get_user_tz(c_id)
@@ -953,7 +948,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
             current_trade_amt = sig_meta["trade_amt"]
             current_mtg_amt = sig_meta["mtg_amt"]
 
-            primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=4)
+            primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=7)
             while auto_mode_users.get(c_id, False):
                 if datetime.now(user_tz) >= primary_settle_dt:
                     break
@@ -969,7 +964,7 @@ def auto_mode_loop(chat_id, username=None, broker_type="quotex"):
                 single_ret = f"+${trade_pnl:.2f}"
                 set_current_stakes(c_id, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
-                mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=4)
+                mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=7)
                 while auto_mode_users.get(c_id, False):
                     if datetime.now(user_tz) >= mtg_settle_dt:
                         break
@@ -1071,7 +1066,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
     }
     bot_admin.send_message(
         f"╭━━━━━━━━━━━━━━━━━━━━╮\n"
-        f" ⏱ <b>LIVE SCHEDULE CONTROLLER</b>\n"
+        f" ⏱ <b>QUICK INSTANT SESSION CONTROLLER</b>\n"
         f"╰━━━━━━━━━━━━━━━━━━━━╯\n\n"
         f"🎯 <b>Channel:</b> <code>{target_channel}</code>\n"
         f"🌐 <b>Market:</b> <code>{m_label}</code>\n"
@@ -1101,7 +1096,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
             curr_t = sig_meta["trade_amt"]
             curr_m = sig_meta["mtg_amt"]
 
-            primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=4)
+            primary_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=1, seconds=7)
             while datetime.now(user_tz) < primary_settle_dt and datetime.now(user_tz) < end_dt and session_info["is_running"]:
                 time.sleep(1)
 
@@ -1115,7 +1110,7 @@ def scheduled_channel_session_worker(admin_chat_id, target_channel, start_dt, en
                 single_ret = f"+${trade_pnl:.2f}"
                 set_current_stakes(t_ch_str, BASE_TRADE_AMOUNT, MTG_TRADE_AMOUNT)
             else:
-                mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=4)
+                mtg_settle_dt = sig_meta["entry_dt"] + timedelta(minutes=2, seconds=7)
                 while datetime.now(user_tz) < mtg_settle_dt and datetime.now(user_tz) < end_dt and session_info["is_running"]:
                     time.sleep(1)
 
@@ -1248,11 +1243,11 @@ def continuous_background_scanner(chat_id, batch_data):
             has_pending = True
 
             if current_status == "PENDING" and now_time >= s["target_dt"]:
-                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=4)):
+                if now_time < (s["target_dt"] + timedelta(minutes=1, seconds=20)):
                     s["status"] = "LIVE"
                     state_changed = True
 
-            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=4)):
+            if s.get("status") in ["PENDING", "LIVE"] and now_time >= (s["target_dt"] + timedelta(minutes=1, seconds=20)):
                 if evaluate_primary_candle(s["pair"], s["target_dt"], s["direction"], broker_type=broker_type):
                     s["status"] = "WIN"
                     record_signal_stats(chat_id, "WIN", user_tz)
@@ -1260,7 +1255,7 @@ def continuous_background_scanner(chat_id, batch_data):
                     s["status"] = "IN_MTG"
                 state_changed = True
 
-            if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=4)):
+            if s.get("status") == "IN_MTG" and now_time >= (s["target_dt"] + timedelta(minutes=2, seconds=20)):
                 if evaluate_mtg_candle(s["pair"], s["target_dt"], s["direction"], broker_type=broker_type):
                     s["status"] = "MTG"
                     record_signal_stats(chat_id, "MTG", user_tz)
@@ -1313,7 +1308,6 @@ def run_server():
     GET_UPDATES = BASE + "/getUpdates"
     ANSWER_CALLBACK = BASE + "/answerCallbackQuery"
 
-    # Startup Notification Clean Cycle
     broadcast_system_notice_and_track(build_online_notice_card(), notice_type="ONLINE")
 
     def edit_or_send(chat_id, text, kb, target_msg_id=None):
@@ -1768,21 +1762,21 @@ def run_server():
                                     active_ch = ch
                                     break
                             if active_ch:
-                                hub_text = f"⏱ <b>SCHEDULE MANAGEMENT HUB</b>\n\n🔴 <b>Active Session Running:</b> <code>{active_ch}</code>"
+                                hub_text = f"⏱ <b>QUICK INSTANT SESSION CONTROLLER</b>\n\n🔴 <b>Active Session Running:</b> <code>{active_ch}</code>"
                                 hub_kb = {
                                     "inline_keyboard": [
                                         [{"text": "🎴 SEND PARTIAL TO CHANNEL", "callback_data": f"sched_ctrl:partial:{active_ch}"}],
-                                        [{"text": "🛑 STOP ACTIVE SCHEDULE", "callback_data": f"sched_ctrl:stop:{active_ch}"}],
-                                        [{"text": "➕ NEW SCHEDULE", "callback_data": "sched:new"}],
+                                        [{"text": "🛑 STOP SESSION", "callback_data": f"sched_ctrl:stop:{active_ch}"}],
+                                        [{"text": "➕ NEW SESSION", "callback_data": "sched:new"}],
                                         [{"text": "📜 SCHEDULE HISTORY", "callback_data": "sched:history"}],
                                         [{"text": "🔙 BACK TO MENU", "callback_data": "back_to_menu"}]
                                     ]
                                 }
                             else:
-                                hub_text = "⏱ <b>SCHEDULE MANAGEMENT HUB</b>\n\nChoose an action below:"
+                                hub_text = "⏱ <b>QUICK INSTANT SESSION CONTROLLER</b>\n\nChoose an action below:"
                                 hub_kb = {
                                     "inline_keyboard": [
-                                        [{"text": "➕ NEW SCHEDULE SESSION", "callback_data": "sched:new"}],
+                                        [{"text": "➕ NEW SESSION", "callback_data": "sched:new"}],
                                         [{"text": "📜 SCHEDULE HISTORY & SAVED", "callback_data": "sched:history"}],
                                         [{"text": "🔙 BACK TO MENU", "callback_data": "back_to_menu"}]
                                     ]
